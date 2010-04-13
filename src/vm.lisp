@@ -86,12 +86,11 @@
        (setf (ldb (byte 29 0) u) (ldb (byte 29 2) val))
        (if (logbitp 31 val)
            (let ((z (+ (lognot val) 1)))
-             (- (loop for i from 2 to 29 for x from 0
-                   sum (if (logbitp i z)
+             (- (loop :for i :from 2 :to 29 :for x :from 0
+                   :sum (if (logbitp i z)
                            (expt 2 x)
                            0))))
-           u)
-       ))
+           u)))
     ((:bool-f) #f)
     ((:bool-t) #t)
     ((:empty) ())
@@ -501,12 +500,12 @@ Error if invalid type."
 
 (defmethod locate ((vm vm) level n)
   (with-accessors ((env env-of)) vm
-    (let ((env* (loop repeat level
-                   for e = env then (vm-cdr vm e)
-                   finally (return (vm-car vm e)))))
-      (loop repeat n
-         for var = env* then (vm-cdr vm var)
-         finally (return (vm-car vm var))))))
+    (let ((env* (loop :repeat level
+                   :for e = env :then (vm-cdr vm e)
+                   :finally (return (vm-car vm e)))))
+      (loop :repeat n
+         :for var = env* :then (vm-cdr vm var)
+         :finally (return (vm-car vm var))))))
 
 ;; LD
 (def-insn LD (vm)
