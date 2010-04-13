@@ -23,11 +23,11 @@
 ;; (lookup 'c '(((a . 1) (b . 2)) ((c . 1) (b . 2)))) => (2 .1) = (level2, 1st)
 (defun lookup (var env)
   "Lookup the variable VAR in environment ENV in compile time."
-  (loop for e in env for level from 1
-     if (assoc var e)
-       return (cons level (cdr (assoc var e)))
-     finally
-       (error "fail to lookup ~a in ~a" var env)))
+  (loop :for e :in env :for level :from 1
+     :if (assoc var e)
+     :return (cons level (cdr (assoc var e)))
+     :finally
+     (error "fail to lookup ~a in ~a" var env)))
 
 (defun extend-env (plist env)
   "Extend environment in compile time."
@@ -74,15 +74,15 @@
             (let ((vars (mapcar #'car bindings))
                   (inits (reverse (mapcar #'cadr bindings))))
               `(:DUM :NIL
-                ,@(loop for init in inits
-                    append (append (compile-pass1 init (extend-env vars env)) '(:CONS)))
+                ,@(loop :for init :in inits
+                    :append (append (compile-pass1 init (extend-env vars env)) '(:CONS)))
                 :LDF
                 ,(append (compile-pass1 body (extend-env vars env)) '(:RTN))
                 :RAP))))
          (t ;; (e ek ...)
           `(:NIL
-            ,@(loop for en in (reverse rest)
-                 append (append (compile-pass1 en env) '(:CONS)))
+            ,@(loop :for en :in (reverse rest)
+                 :append (append (compile-pass1 en env) '(:CONS)))
             ,@(compile-pass1 op env) :AP)))))
     (t
      (error "compile-pass1 unknown: ~a" exp))))
