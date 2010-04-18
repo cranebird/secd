@@ -11,8 +11,8 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (set-scm-macro-character)
-  ;;(defparameter *debug* t)
-  (defparameter *debug* nil)
+  (defparameter *debug* t)
+  ;(defparameter *debug* nil)
   )
 
 ;; tagged pointer
@@ -281,6 +281,38 @@ Error if invalid type."
     ;;          (format stream "~x : ~a ~a ~%" i type val))))
     ;;(format stream "todo desc~%")
     ))
+
+(defmethod graphviz-object ((vm vm) stream)
+  (format stream "digraph structs {~%")
+  (format stream "rankdir=LR~%")
+  (format stream "node [shape=record];~%")
+  (format stream "mem [label=\"");
+  ;; memory box
+  (with-accessors ((mem memory-of) (ap ap-of)) vm
+    (loop :for addr :from ap :downto 0 by 4
+       do
+       (multiple-value-bind (val type) (scheme-value-of (load-word mem addr))
+         (format stream "{<p~8,'0,,x> ~8,'0,,x| ~a| ~a}" addr addr type val)
+         (unless (= addr 0)
+           (format stream " | ")))))
+  (format stream "\"];~%")
+  ;; link
+  (with-accessors ((mem memory-of) (ap ap-of)) vm
+    (loop :for addr :from ap :downto 0 by 4
+       do
+       (multiple-value-bind (val type) (scheme-value-of (load-word mem addr))
+         (when (eql type :pair)
+           (format stream "mem:p~8,'0,,x:w -> mem:p~8,'0,,x:w~%"
+                   addr val)))))
+  ;; SECD pointer
+  (format stream "stack -> mem:p~8,'0,,x:w;~%" (scheme-value-of (sp-of vm)))
+  (format stream "env -> mem:p~8,'0,,x:w;~%" (scheme-value-of (env-of vm)))
+  (format stream "dump -> mem:p~8,'0,,x:w;~%" (scheme-value-of (dump-of vm)))
+
+  (format stream "ap -> mem:p~8,'0,,x:w;~%" (ap-of vm))
+  
+  (format stream "}~%")
+  )
 
 (defgeneric dispatch (insn vm)
   (:documentation "Dispatch VM instruction."))
