@@ -283,21 +283,20 @@ Error if invalid type."
     ;;(format stream "todo desc~%")
     ))
 
-(defmethod dump ((vm vm))
-  (with-accessors ((mem memory-of) (ap ap-of)) vm
-    (format t "stack -> ~8,'0,,x;~%" (scheme-value-of (sp-of vm)))
-    (format t "env -> ~8,'0,,x;~%" (scheme-value-of (env-of vm)))
-    (format t "dump -> ~8,'0,,x;~%" (scheme-value-of (dump-of vm)))
+;; (defmethod dump ((vm vm))
+;;   (with-accessors ((mem memory-of) (ap ap-of)) vm
+;;     (format t "stack -> ~8,'0,,x;~%" (scheme-value-of (sp-of vm)))
+;;     (format t "env -> ~8,'0,,x;~%" (scheme-value-of (env-of vm)))
+;;     (format t "dump -> ~8,'0,,x;~%" (scheme-value-of (dump-of vm)))
 
-    (loop :for addr :from ap :downto 0 :by wordsize
-       :do
-       (let ((word (load-word mem addr)))
-         (if (scheme-type-of word) 
-             (multiple-value-bind (val type) (scheme-value-of word)
-               (format t "~8,'0,,x| ~a| ~a~%" addr type val))
-             (format t "~8,'0,,x| ~a| ~a~%" addr "unknown" "unknown")
-             )))))
-
+;;     (loop :for addr :from ap :downto 0 :by wordsize
+;;        :do
+;;        (let ((word (load-word mem addr)))
+;;          (if (scheme-type-of word) 
+;;              (multiple-value-bind (val type) (scheme-value-of word)
+;;                (format t "~8,'0,,x| ~a| ~a~%" addr type val))
+;;              (format t "~8,'0,,x| ~a| ~a~%" addr "unknown" "unknown")
+;;              )))))
 
 (defmethod graphviz-object ((vm vm) stream)
   (format stream "digraph structs {~%")
@@ -325,11 +324,14 @@ Error if invalid type."
   (format stream "stack -> mem:p~8,'0,,x:w;~%" (scheme-value-of (sp-of vm)))
   (format stream "env -> mem:p~8,'0,,x:w;~%" (scheme-value-of (env-of vm)))
   (format stream "dump -> mem:p~8,'0,,x:w;~%" (scheme-value-of (dump-of vm)))
-
   (format stream "ap -> mem:p~8,'0,,x:w;~%" (ap-of vm))
-  
   (format stream "}~%")
   )
+
+(defun graphviz-vm (vm)
+  (with-output-to-string (o)
+    (graphviz-object vm o)
+    o))
 
 (defgeneric dispatch (insn vm)
   (:documentation "Dispatch VM instruction."))
@@ -523,9 +525,6 @@ Error if invalid type."
       (setf sp (vm-cons vm (vm-cons vm a b) sp))
       (next vm))))
 
-
-
-
 ;; SEL CT CF CONT
 (def-insn SEL (vm)
   (with-accessors ((pc pc-of) (code get-code) (dump dump-of)) vm
@@ -536,14 +535,14 @@ Error if invalid type."
       (setf pc (if (eql (scheme-value-of x) '#t)
                    ct
                    cf))
-      (setf dump (vm-cons vm cont dump))
+      (setf dump (vm-cons vm (immediate-rep cont) dump))
       (next vm))))
 
 ;; JOIN
 (def-insn JOIN (vm)
   (with-accessors ((pc set-pc)) vm
     (let ((cr (vm-dump-pop vm)))
-      (setf pc cr)
+      (setf pc (scheme-value-of cr))
       (next vm))))
 
 ;;(defun locate (level j env)
@@ -574,10 +573,6 @@ Error if invalid type."
   (with-accessors ((sp sp-of) (e get-env) (pc pc-of) (code get-code)) vm
     (let ((f (fetch-operand vm)) ;; PC
           (c (code-ref code (+ 1 pc))))
-
-      (format t "f:~a~%" f)
-
-      ;;(setf sp (vm-cons vm (vm-cons vm f e) sp))
       (setf sp (vm-cons vm (vm-cons vm (immediate-rep f) e) sp))
       (setf pc c)
       (next vm))))
@@ -587,7 +582,6 @@ Error if invalid type."
   (with-accessors ((env env-of) (pc pc-of) (dump dump-of) (sp sp-of) (code get-code)) vm
     (let* ((c pc) ;;
            (closure (vm-car vm sp)) ;; (f.e')
-           ;;(fbody-pc (vm-car vm closure)) ;; f
            (fbody-pc (scheme-value-of (vm-car vm closure))) ;; f
            (fenv (vm-cdr vm closure)) ;; e'
            (v (vm-car vm (vm-cdr vm sp))) ;; v
@@ -596,7 +590,8 @@ Error if invalid type."
       (setf sp (vm-cons vm (immediate-rep ()) (immediate-rep ()))) ;; () be care
       (setf env (vm-cons vm v fenv))
       (setf pc fbody-pc)
-      (setf dump (vm-cons vm s (vm-cons vm env-old (vm-cons vm c dump))))
+      ;;(setf dump (vm-cons vm s (vm-cons vm env-old (vm-cons vm c dump))))
+      (setf dump (vm-cons vm s (vm-cons vm env-old (vm-cons vm (immediate-rep c) dump))))
       (next vm))))
 
 ;; RTN     (x.z) e' (RTN.q) (s e c.d) ->  (x.s) e c d
@@ -609,7 +604,8 @@ Error if invalid type."
            (d (vm-cdr vm (vm-cdr vm (vm-cdr vm dump)))))
       (setf stack (vm-cons vm x s))
       (setf env e)
-      (setf pc c)
+      ;;(setf pc c)
+      (setf pc (scheme-value-of c))
       (setf dump d)
       (next vm))))
 
