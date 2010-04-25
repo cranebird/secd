@@ -11,8 +11,8 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (set-scm-macro-character)
-  (defparameter *debug* t)
-  ;(defparameter *debug* nil)
+  ;(defparameter *debug* t)
+  (defparameter *debug* nil)
   )
 
 ;; tagged pointer
@@ -249,11 +249,13 @@ Error if invalid type."
 (defun make-vm (code)
   "Make vm instance."
   (let ((vm (make-instance 'vm :code code)))
-    (with-accessors ((mem set-memory) (ap set-ap) (sp set-sp) (env set-env) (dump set-dump)) vm
+    (with-accessors ((mem memory-of) (ap ap-of) (sp set-sp) (env set-env) (dump set-dump)) vm
       (setf mem (make-memory *memory-size*))
-      (setf sp (vm-cons vm (immediate-rep '#f) (immediate-rep ())))
-      (setf env (vm-cons vm (immediate-rep '#f) (immediate-rep ())))
-      (setf dump (vm-cons vm (immediate-rep '#f) (immediate-rep ()))))
+      (setf (address mem 0) (immediate-rep ()))
+      (incf ap 8)
+      (setf sp 1
+            env 1
+            dump 1))
     vm))
 
 (defmethod print-object ((vm vm) stream)
@@ -274,13 +276,28 @@ Error if invalid type."
     ;; (format stream "VM ap: ~a~%" (ap-of vm))
     ;; (format stream "VM sp: ~a~%" (sp-of vm))
     ;; (format stream "VM stack top: ~a~%" (scheme-value-of (vm-stack-top vm)))
-    ;; (with-accessors ((mem memory-of) (ap ap-of)) vm
-    ;;   (loop for i from ap downto 0 by 4
-    ;;      do 
-    ;;        (multiple-value-bind (val type) (scheme-value-of (load-word mem i))
-    ;;          (format stream "~x : ~a ~a ~%" i type val))))
+     (with-accessors ((mem memory-of) (ap ap-of)) vm
+       (loop :for i :from ap :downto 0 :by wordsize
+          :do
+            (format stream "~x : ~a ~%" i (load-word mem i))))
     ;;(format stream "todo desc~%")
     ))
+
+(defmethod dump ((vm vm))
+  (with-accessors ((mem memory-of) (ap ap-of)) vm
+    (format t "stack -> ~8,'0,,x;~%" (scheme-value-of (sp-of vm)))
+    (format t "env -> ~8,'0,,x;~%" (scheme-value-of (env-of vm)))
+    (format t "dump -> ~8,'0,,x;~%" (scheme-value-of (dump-of vm)))
+
+    (loop :for addr :from ap :downto 0 :by wordsize
+       :do
+       (let ((word (load-word mem addr)))
+         (if (scheme-type-of word) 
+             (multiple-value-bind (val type) (scheme-value-of word)
+               (format t "~8,'0,,x| ~a| ~a~%" addr type val))
+             (format t "~8,'0,,x| ~a| ~a~%" addr "unknown" "unknown")
+             )))))
+
 
 (defmethod graphviz-object ((vm vm) stream)
   (format stream "digraph structs {~%")
@@ -289,8 +306,8 @@ Error if invalid type."
   (format stream "mem [label=\"");
   ;; memory box
   (with-accessors ((mem memory-of) (ap ap-of)) vm
-    (loop :for addr :from ap :downto 0 by 4
-       do
+    (loop :for addr :from ap :downto 0 :by wordsize
+       :do
        (multiple-value-bind (val type) (scheme-value-of (load-word mem addr))
          (format stream "{<p~8,'0,,x> ~8,'0,,x| ~a| ~a}" addr addr type val)
          (unless (= addr 0)
@@ -298,8 +315,8 @@ Error if invalid type."
   (format stream "\"];~%")
   ;; link
   (with-accessors ((mem memory-of) (ap ap-of)) vm
-    (loop :for addr :from ap :downto 0 by 4
-       do
+    (loop :for addr :from ap :downto 0 :by wordsize
+       :do
        (multiple-value-bind (val type) (scheme-value-of (load-word mem addr))
          (when (eql type :pair)
            (format stream "mem:p~8,'0,,x:w -> mem:p~8,'0,,x:w~%"
@@ -506,6 +523,9 @@ Error if invalid type."
       (setf sp (vm-cons vm (vm-cons vm a b) sp))
       (next vm))))
 
+
+
+
 ;; SEL CT CF CONT
 (def-insn SEL (vm)
   (with-accessors ((pc pc-of) (code get-code) (dump dump-of)) vm
@@ -552,9 +572,13 @@ Error if invalid type."
 ;; LDF     s e (LDF f.c) d            ->  ((f.e).s) e c d
 (def-insn LDF (vm)
   (with-accessors ((sp sp-of) (e get-env) (pc pc-of) (code get-code)) vm
-    (let ((f (fetch-operand vm))
+    (let ((f (fetch-operand vm)) ;; PC
           (c (code-ref code (+ 1 pc))))
-      (setf sp (vm-cons vm (vm-cons vm f e) sp))
+
+      (format t "f:~a~%" f)
+
+      ;;(setf sp (vm-cons vm (vm-cons vm f e) sp))
+      (setf sp (vm-cons vm (vm-cons vm (immediate-rep f) e) sp))
       (setf pc c)
       (next vm))))
 
@@ -563,7 +587,8 @@ Error if invalid type."
   (with-accessors ((env env-of) (pc pc-of) (dump dump-of) (sp sp-of) (code get-code)) vm
     (let* ((c pc) ;;
            (closure (vm-car vm sp)) ;; (f.e')
-           (fbody-pc (vm-car vm closure)) ;; f
+           ;;(fbody-pc (vm-car vm closure)) ;; f
+           (fbody-pc (scheme-value-of (vm-car vm closure))) ;; f
            (fenv (vm-cdr vm closure)) ;; e'
            (v (vm-car vm (vm-cdr vm sp))) ;; v
            (s (vm-cdr vm (vm-cdr vm sp))) ;; s
