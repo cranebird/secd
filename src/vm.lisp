@@ -11,8 +11,8 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (set-scm-macro-character)
-  ;(defparameter *debug* t)
-  (defparameter *debug* nil)
+  (defparameter *debug* t)
+  ;(defparameter *debug* nil)
   )
 
 ;; tagged pointer
@@ -164,6 +164,8 @@ Error if invalid type."
     :documentation "Program Pointer")
    (code
     :reader get-code
+    :accessor code-of
+    :writer (setf set-code)
     :initform nil
     :initarg :code
     :documentation "code vector")
@@ -246,9 +248,8 @@ Error if invalid type."
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun make-vm (code)
-  "Make vm instance."
-  (let ((vm (make-instance 'vm :code code)))
+(defun make-vm0 ()
+  (let ((vm (make-instance 'vm)))
     (with-accessors ((mem memory-of) (ap ap-of) (sp set-sp) (env set-env) (dump set-dump)) vm
       (setf mem (make-memory *memory-size*))
       (setf (address mem 0) (immediate-rep ()))
@@ -256,6 +257,24 @@ Error if invalid type."
       (setf sp 1
             env 1
             dump 1))
+    vm))
+
+;; (defun make-vm (code)
+;;   "Make vm instance."
+;;   (let ((vm (make-instance 'vm :code code)))
+;;     (with-accessors ((mem memory-of) (ap ap-of) (sp set-sp) (env set-env) (dump set-dump)) vm
+;;       (setf mem (make-memory *memory-size*))
+;;       (setf (address mem 0) (immediate-rep ()))
+;;       (incf ap 8)
+;;       (setf sp 1
+;;             env 1
+;;             dump 1))
+;;     vm))
+
+(defun make-vm (code)
+  "Make vm instance."
+  (let ((vm (make-vm0)))
+    (setf (code-of vm) code)
     vm))
 
 (defmethod print-object ((vm vm) stream)
@@ -298,21 +317,43 @@ Error if invalid type."
 ;;              (format t "~8,'0,,x| ~a| ~a~%" addr "unknown" "unknown")
 ;;              )))))
 
+(defun format-type (type)
+  (case type
+    (:fixnum "FIXNUM")
+    (:pair "PAIR__")
+    (:vector "VECTOR")
+    (:empty "EMPTY_")
+    (:bool-f "BOOL_F")
+    (:bool-t "BOOL_T")))
+
+(defun format-val (val)
+  (if (numberp val)
+      (format nil "~8,'_,,d" val)
+      (let ((str (format nil "~a" val)))
+        (if (< (length str) 8)
+            (concatenate 'string 
+                         (loop repeat (- 8 (length str))
+                              collect #\_) str)
+            (subseq str 0 8)))))
+
 (defmethod graphviz-object ((vm vm) stream)
   (format stream "digraph structs {~%")
+  (format stream "graph [fontsize=\"9\", fontname=\"monospace\"]~%")
   (format stream "rankdir=LR~%")
-  (format stream "node [shape=record];~%")
+  (format stream "node [shape=record, fontsize=9, fontname=\"monospace\", margin=\"0,0\"];~%")
   (format stream "mem [label=\"");
   ;; memory box
   (with-accessors ((mem memory-of) (ap ap-of)) vm
     (loop :for addr :from ap :downto 0 :by wordsize
        :do
        (multiple-value-bind (val type) (scheme-value-of (load-word mem addr))
-         (format stream "{<p~8,'0,,x> ~8,'0,,x| ~a| ~a}" addr addr type val)
+         ;(format stream "{<p~8,'0,,x> ~8,'0,,x| ~a| ~a}" addr addr (format-type type) val)
+         (format stream "{<p~8,'0,,x> ~8,'0,,x| ~a| ~a}" addr addr 
+                 (format-type type) (format-val val))
          (unless (= addr 0)
            (format stream " | ")))))
   (format stream "\"];~%")
-  ;; link
+  ;; pointer
   (with-accessors ((mem memory-of) (ap ap-of)) vm
     (loop :for addr :from ap :downto 0 :by wordsize
        :do
@@ -325,13 +366,23 @@ Error if invalid type."
   (format stream "env -> mem:p~8,'0,,x:w;~%" (scheme-value-of (env-of vm)))
   (format stream "dump -> mem:p~8,'0,,x:w;~%" (scheme-value-of (dump-of vm)))
   (format stream "ap -> mem:p~8,'0,,x:w;~%" (ap-of vm))
+  ;; code
+  (format stream "code [label=\"");
+  (loop :for c :across (code-of vm) for i from 0
+     :do
+     (progn
+       (format stream "<c~d> ~a" i c)
+       (unless (= i (- (length (code-of vm)) 1))
+         (format stream " | "))))
+  (format stream "\"];~%")
+  (format stream "pc -> code:c~d:w;~%" (1- (pc-of vm)))
   (format stream "}~%")
   )
 
-(defun graphviz-vm (vm)
-  (with-output-to-string (o)
-    (graphviz-object vm o)
-    o))
+(defun graphviz-vm (vm &optional (file "tmp.vm.dot"))
+  (with-open-file (out file :direction :output :if-exists :supersede)
+    (graphviz-object vm out))
+  (sb-ext:run-program "/opt/local/bin/dot" `("-Tpng" "-O" ,file)))
 
 (defgeneric dispatch (insn vm)
   (:documentation "Dispatch VM instruction."))
@@ -418,7 +469,9 @@ Error if invalid type."
             `(let ((*print-circle* t))
                (format t "; insn: ~a~%" ,insn)
                ;;(format t "; Memory: ~a Stack: ~a~%" (memory-of ,vm) (sp-of ,vm))
-               (format t "; PC: ~a~%" (pc-of ,vm)))
+               (format t "; PC: ~a~%" (pc-of ,vm))
+               (graphviz-vm ,vm (format nil "tmp.vm.~d.dot" (execution-count-of ,vm)))
+               )
             ;`(declare (ignore ,insn))
             )
        ,(if *debug*
@@ -524,6 +577,12 @@ Error if invalid type."
            (b (vm-stack-pop vm)))
       (setf sp (vm-cons vm (vm-cons vm a b) sp))
       (next vm))))
+
+;; TODO 20100425
+;; (def-insn CONS (vm)
+;;   (with-accessors ((sp sp-of)) vm
+;;     (setf sp (sp-of vm))
+;;     (next vm)))
 
 ;; SEL CT CF CONT
 (def-insn SEL (vm)
