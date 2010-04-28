@@ -11,14 +11,14 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (set-scm-macro-character)
-  (defparameter *debug* t)
-  ;(defparameter *debug* nil)
+  ;(defparameter *debug* t)
+  (defparameter *debug* nil)
   )
 
 ;; tagged pointer
 
 ;(defparameter *memory-size* 64000)
-(defparameter *memory-size* (* 10000000 4)) ;; SCM_VM_STACK_SIZE in words = 10000
+(defparameter *memory-size* (* 1000 4)) ;; SCM_VM_STACK_SIZE in words = 10000
 ;(defparameter *memory-size* 64000)
 ;(defparameter *memory-size* 320)
 
@@ -200,6 +200,24 @@ Error if invalid type."
 ;; CONS CELL
 ;; | CAR | 1 word
 ;; | CDR | 1 word
+;; (defun load-word (m p)
+;;   (let ((v 0)) ;; little endian
+;;     (setf (ldb (byte 8 0) v) (address m (+ 0 p)))
+;;     (setf (ldb (byte 8 8) v) (address m (+ 1 p)))
+;;     (setf (ldb (byte 8 16) v) (address m (+ 2 p)))
+;;     (setf (ldb (byte 8 24) v) (address m (+ 3 p)))
+;;     v))
+
+(defun read-word (mem addr0)
+  (loop :with v = 0 :for addr :from addr0 :to (+ addr0 3) :for pos :from 0 :by 8
+     :do
+       (setf (ldb (byte 8 pos) v) (address mem addr))
+     :finally 
+       (return v)))
+
+;; (defun write-word (mem p w)
+;;   )
+
 (defmethod vm-cons ((vm vm) a b)
   (with-accessors ((mem memory-of) (ap ap-of)) vm
     (let ((ap0 ap))
@@ -218,28 +236,38 @@ Error if invalid type."
 (defgeneric vm-car (vm addr)
   (:documentation "car on VM."))
 
+;; (defmethod vm-car ((vm vm) val)
+;;   (with-accessors ((m memory-of)) vm
+;;     (let ((v 0)
+;;           (sv (scheme-value-of val)))
+;;       (setf (ldb (byte 8 0) v) (address m (+ 0 sv)))
+;;       (setf (ldb (byte 8 8) v) (address m (+ 1 sv)))
+;;       (setf (ldb (byte 8 16) v) (address m (+ 2 sv)))
+;;       (setf (ldb (byte 8 24) v) (address m (+ 3 sv)))
+;;       v)))
+
 (defmethod vm-car ((vm vm) val)
   (with-accessors ((m memory-of)) vm
-    (let ((v 0)
-          (sv (scheme-value-of val)))
-      (setf (ldb (byte 8 0) v) (address m (+ 0 sv)))
-      (setf (ldb (byte 8 8) v) (address m (+ 1 sv)))
-      (setf (ldb (byte 8 16) v) (address m (+ 2 sv)))
-      (setf (ldb (byte 8 24) v) (address m (+ 3 sv)))
-      v)))
+    (let ((sv (scheme-value-of val)))
+      (read-word m sv))))
 
 (defgeneric vm-cdr (vm addr)
   (:documentation "car on VM."))
 
+;; (defmethod vm-cdr ((vm vm) val)
+;;   (with-accessors ((m memory-of)) vm
+;;     (let ((v 0)
+;;           (sv (scheme-value-of val)))
+;;       (setf (ldb (byte 8 0) v) (address m (+ 4 sv)))
+;;       (setf (ldb (byte 8 8) v) (address m (+ 5 sv)))
+;;       (setf (ldb (byte 8 16) v) (address m (+ 6 sv)))
+;;       (setf (ldb (byte 8 24) v) (address m (+ 7 sv)))
+;;       v)))
+
 (defmethod vm-cdr ((vm vm) val)
   (with-accessors ((m memory-of)) vm
-    (let ((v 0)
-          (sv (scheme-value-of val)))
-      (setf (ldb (byte 8 0) v) (address m (+ 4 sv)))
-      (setf (ldb (byte 8 8) v) (address m (+ 5 sv)))
-      (setf (ldb (byte 8 16) v) (address m (+ 6 sv)))
-      (setf (ldb (byte 8 24) v) (address m (+ 7 sv)))
-      v)))
+    (let ((sv (scheme-value-of val)))
+      (read-word m (+ sv 4)))))
 
 (defvar *the-vm* nil)
 (defmacro with-vm ((vm) &body body)
@@ -249,6 +277,7 @@ Error if invalid type."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun make-vm0 ()
+  "Make vm instance and initialize."
   (let ((vm (make-instance 'vm)))
     (with-accessors ((mem memory-of) (ap ap-of) (sp set-sp) (env set-env) (dump set-dump)) vm
       (setf mem (make-memory *memory-size*))
@@ -258,18 +287,6 @@ Error if invalid type."
             env 1
             dump 1))
     vm))
-
-;; (defun make-vm (code)
-;;   "Make vm instance."
-;;   (let ((vm (make-instance 'vm :code code)))
-;;     (with-accessors ((mem memory-of) (ap ap-of) (sp set-sp) (env set-env) (dump set-dump)) vm
-;;       (setf mem (make-memory *memory-size*))
-;;       (setf (address mem 0) (immediate-rep ()))
-;;       (incf ap 8)
-;;       (setf sp 1
-;;             env 1
-;;             dump 1))
-;;     vm))
 
 (defun make-vm (code)
   "Make vm instance."
@@ -298,7 +315,7 @@ Error if invalid type."
      (with-accessors ((mem memory-of) (ap ap-of)) vm
        (loop :for i :from ap :downto 0 :by wordsize
           :do
-            (format stream "~x : ~a ~%" i (load-word mem i))))
+            (format stream "~x : ~a ~%" i (read-word mem i))))
     ;;(format stream "todo desc~%")
     ))
 
@@ -340,14 +357,14 @@ Error if invalid type."
   (format stream "digraph structs {~%")
   (format stream "graph [fontsize=\"9\", fontname=\"monospace\"]~%")
   (format stream "rankdir=LR~%")
+  ;;(format stream "edge [sametail,samehead]~%")
   (format stream "node [shape=record, fontsize=9, fontname=\"monospace\", margin=\"0,0\"];~%")
-  (format stream "mem [label=\"");
+  (format stream "mem [color=orange4,label=\"");
   ;; memory box
   (with-accessors ((mem memory-of) (ap ap-of)) vm
     (loop :for addr :from ap :downto 0 :by wordsize
        :do
-       (multiple-value-bind (val type) (scheme-value-of (load-word mem addr))
-         ;(format stream "{<p~8,'0,,x> ~8,'0,,x| ~a| ~a}" addr addr (format-type type) val)
+       (multiple-value-bind (val type) (scheme-value-of (read-word mem addr))
          (format stream "{<p~8,'0,,x> ~8,'0,,x| ~a| ~a}" addr addr 
                  (format-type type) (format-val val))
          (unless (= addr 0)
@@ -357,17 +374,20 @@ Error if invalid type."
   (with-accessors ((mem memory-of) (ap ap-of)) vm
     (loop :for addr :from ap :downto 0 :by wordsize
        :do
-       (multiple-value-bind (val type) (scheme-value-of (load-word mem addr))
+       (multiple-value-bind (val type) (scheme-value-of (read-word mem addr))
          (when (eql type :pair)
            (format stream "mem:p~8,'0,,x:w -> mem:p~8,'0,,x:w~%"
                    addr val)))))
   ;; SECD pointer
-  (format stream "stack -> mem:p~8,'0,,x:w;~%" (scheme-value-of (sp-of vm)))
-  (format stream "env -> mem:p~8,'0,,x:w;~%" (scheme-value-of (env-of vm)))
-  (format stream "dump -> mem:p~8,'0,,x:w;~%" (scheme-value-of (dump-of vm)))
-  (format stream "ap -> mem:p~8,'0,,x:w;~%" (ap-of vm))
+  (format stream "secd [color=indigo,label=\"{{<sp> sp | <env> env | <dump> dump | <ap> ap | <pc> pc }}\"];~%")
+
+  (format stream "secd:sp -> mem:p~8,'0,,x:w;~%" (scheme-value-of (sp-of vm)))
+  (format stream "secd:env -> mem:p~8,'0,,x:w;~%" (scheme-value-of (env-of vm)))
+  (format stream "secd:dump -> mem:p~8,'0,,x:w;~%" (scheme-value-of (dump-of vm)))
+  (format stream "secd:ap -> mem:p~8,'0,,x:w;~%" (ap-of vm))
+
   ;; code
-  (format stream "code [label=\"");
+  (format stream "code [color=navy,label=\"");
   (loop :for c :across (code-of vm) for i from 0
      :do
      (progn
@@ -375,7 +395,7 @@ Error if invalid type."
        (unless (= i (- (length (code-of vm)) 1))
          (format stream " | "))))
   (format stream "\"];~%")
-  (format stream "pc -> code:c~d:w;~%" (1- (pc-of vm)))
+  (format stream "secd:pc -> code:c~d:w;~%" (1- (pc-of vm)))
   (format stream "}~%")
   )
 
@@ -449,13 +469,13 @@ Error if invalid type."
          (setf ,dump (vm-cdr ,vm ,dump))
          ,top))))
 
-(defun load-word (m p)
-  (let ((v 0)) ;; little endian
-    (setf (ldb (byte 8 0) v) (address m (+ 0 p)))
-    (setf (ldb (byte 8 8) v) (address m (+ 1 p)))
-    (setf (ldb (byte 8 16) v) (address m (+ 2 p)))
-    (setf (ldb (byte 8 24) v) (address m (+ 3 p)))
-    v))
+;; (defun load-word (m p)
+;;   (let ((v 0)) ;; little endian
+;;     (setf (ldb (byte 8 0) v) (address m (+ 0 p)))
+;;     (setf (ldb (byte 8 8) v) (address m (+ 1 p)))
+;;     (setf (ldb (byte 8 16) v) (address m (+ 2 p)))
+;;     (setf (ldb (byte 8 24) v) (address m (+ 3 p)))
+;;     v))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; instructions
@@ -467,12 +487,9 @@ Error if invalid type."
     `(defmethod dispatch ((,insn (eql ,(as-keyword name))) (,vm vm))
        ,(if *debug*
             `(let ((*print-circle* t))
-               (format t "; insn: ~a~%" ,insn)
-               ;;(format t "; Memory: ~a Stack: ~a~%" (memory-of ,vm) (sp-of ,vm))
-               (format t "; PC: ~a~%" (pc-of ,vm))
+               (format t "; PC: ~a insn: ~a~%" (pc-of ,vm) ,insn)
                (graphviz-vm ,vm (format nil "tmp.vm.~d.dot" (execution-count-of ,vm)))
                )
-            ;`(declare (ignore ,insn))
             )
        ,(if *debug*
             `(progn
