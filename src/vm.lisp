@@ -200,51 +200,42 @@ Error if invalid type."
 ;; CONS CELL
 ;; | CAR | 1 word
 ;; | CDR | 1 word
-;; (defun load-word (m p)
-;;   (let ((v 0)) ;; little endian
-;;     (setf (ldb (byte 8 0) v) (address m (+ 0 p)))
-;;     (setf (ldb (byte 8 8) v) (address m (+ 1 p)))
-;;     (setf (ldb (byte 8 16) v) (address m (+ 2 p)))
-;;     (setf (ldb (byte 8 24) v) (address m (+ 3 p)))
-;;     v))
 
 (defun read-word (mem addr0)
   (loop :with v = 0 :for addr :from addr0 :to (+ addr0 3) :for pos :from 0 :by 8
-     :do
-       (setf (ldb (byte 8 pos) v) (address mem addr))
-     :finally 
-       (return v)))
+     :do (setf (ldb (byte 8 pos) v) (address mem addr))
+     :finally (return v)))
 
-;; (defun write-word (mem p w)
-;;   )
+(defun write-word (mem addr0 w)
+  (loop :for addr :from addr0 :to (+ addr0 3) :for pos :from 0 :by 8
+     :do (setf (address mem addr) (ldb (byte 8 pos) w))))
 
 (defmethod vm-cons ((vm vm) a b)
   (with-accessors ((mem memory-of) (ap ap-of)) vm
     (let ((ap0 ap))
-      (setf (address mem ap) (ldb (byte 8 0) a))
-      (setf (address mem (+ 1 ap)) (ldb (byte 8 8) a))
-      (setf (address mem (+ 2 ap)) (ldb (byte 8 16) a))
-      (setf (address mem (+ 3 ap)) (ldb (byte 8 24) a))
-      (setf (address mem (+ 4 ap)) (ldb (byte 8 0) b))
-      (setf (address mem (+ 5 ap)) (ldb (byte 8 8) b))
-      (setf (address mem (+ 6 ap)) (ldb (byte 8 16) b))
-      (setf (address mem (+ 7 ap)) (ldb (byte 8 24) b))
+      (write-word mem ap a)
+      (write-word mem (+ ap 4) b)
       (incf ap 8)
       (setf (ldb (byte 3 0) ap0) tag-pair)
       ap0)))
 
+;; (defmethod vm-cons ((vm vm) a b)
+;;   (with-accessors ((mem memory-of) (ap ap-of)) vm
+;;     (let ((ap0 ap))
+;;       (setf (address mem ap) (ldb (byte 8 0) a))
+;;       (setf (address mem (+ 1 ap)) (ldb (byte 8 8) a))
+;;       (setf (address mem (+ 2 ap)) (ldb (byte 8 16) a))
+;;       (setf (address mem (+ 3 ap)) (ldb (byte 8 24) a))
+;;       (setf (address mem (+ 4 ap)) (ldb (byte 8 0) b))
+;;       (setf (address mem (+ 5 ap)) (ldb (byte 8 8) b))
+;;       (setf (address mem (+ 6 ap)) (ldb (byte 8 16) b))
+;;       (setf (address mem (+ 7 ap)) (ldb (byte 8 24) b))
+;;       (incf ap 8)
+;;       (setf (ldb (byte 3 0) ap0) tag-pair)
+;;       ap0)))
+
 (defgeneric vm-car (vm addr)
   (:documentation "car on VM."))
-
-;; (defmethod vm-car ((vm vm) val)
-;;   (with-accessors ((m memory-of)) vm
-;;     (let ((v 0)
-;;           (sv (scheme-value-of val)))
-;;       (setf (ldb (byte 8 0) v) (address m (+ 0 sv)))
-;;       (setf (ldb (byte 8 8) v) (address m (+ 1 sv)))
-;;       (setf (ldb (byte 8 16) v) (address m (+ 2 sv)))
-;;       (setf (ldb (byte 8 24) v) (address m (+ 3 sv)))
-;;       v)))
 
 (defmethod vm-car ((vm vm) val)
   (with-accessors ((m memory-of)) vm
@@ -253,16 +244,6 @@ Error if invalid type."
 
 (defgeneric vm-cdr (vm addr)
   (:documentation "car on VM."))
-
-;; (defmethod vm-cdr ((vm vm) val)
-;;   (with-accessors ((m memory-of)) vm
-;;     (let ((v 0)
-;;           (sv (scheme-value-of val)))
-;;       (setf (ldb (byte 8 0) v) (address m (+ 4 sv)))
-;;       (setf (ldb (byte 8 8) v) (address m (+ 5 sv)))
-;;       (setf (ldb (byte 8 16) v) (address m (+ 6 sv)))
-;;       (setf (ldb (byte 8 24) v) (address m (+ 7 sv)))
-;;       v)))
 
 (defmethod vm-cdr ((vm vm) val)
   (with-accessors ((m memory-of)) vm
@@ -468,14 +449,6 @@ Error if invalid type."
        (let ((,top (vm-car ,vm ,dump)))
          (setf ,dump (vm-cdr ,vm ,dump))
          ,top))))
-
-;; (defun load-word (m p)
-;;   (let ((v 0)) ;; little endian
-;;     (setf (ldb (byte 8 0) v) (address m (+ 0 p)))
-;;     (setf (ldb (byte 8 8) v) (address m (+ 1 p)))
-;;     (setf (ldb (byte 8 16) v) (address m (+ 2 p)))
-;;     (setf (ldb (byte 8 24) v) (address m (+ 3 p)))
-;;     v))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; instructions
