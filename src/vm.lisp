@@ -11,14 +11,15 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (set-scm-macro-character)
-  ;(defparameter *debug* t)
+  ;;(defparameter *debug* t)
   (defparameter *debug* nil)
+  (defparameter *profile* t) 
   )
 
 ;; tagged pointer
 
 ;(defparameter *memory-size* 64000)
-(defparameter *memory-size* (* 1000 4)) ;; SCM_VM_STACK_SIZE in words = 10000
+(defparameter *memory-size* (* 50000 4)) ;; SCM_VM_STACK_SIZE in words = 10000
 ;(defparameter *memory-size* 64000)
 ;(defparameter *memory-size* 320)
 
@@ -27,39 +28,41 @@
   (make-array size :element-type '(unsigned-byte 8)))
 
 (defun address (mem idx)
+  "low level accesser to the memory MEM"
   (aref mem idx))
 
 (defsetf address (mem idx) (new)
   `(setf (aref ,mem ,idx) ,new))
 
-(defconstant fxshift 2)
-(defconstant bool-f #b0101111)
-(defconstant bool-t #b1101111)
-(defconstant bool-mask #b10111111)
-(defconstant empty #b00111111)
+;; (defconstant fxshift 2)
+
+(defconstant bool-f #b0101111) ;; immediate rep
+(defconstant bool-t #b1101111) ;; immediate rep
+(defconstant empty #b00111111) ;; immediate rep
+
+;;(defconstant bool-mask #b10111111)
+
+
+
 (defconstant wordsize 4)
 
 (defconstant tag-fixnum #b00)
 (defconstant tag-pair #b001)
 (defconstant tag-vector #b010)
 
-(defun scheme-type-of (val)
-  "return scheme type of value VAL or return nil if unknown."
-  (if (eql (ldb (byte 2 0) val) tag-fixnum)
-      :fixnum
-      (let ((tag3 (ldb (byte 3 0) val)))
-        (cond
-          ((eql tag3 tag-pair)
-           :pair)
-          ((eql tag3 tag-vector)
-           :vector)
-          ((eql (ldb (byte 8 0) val) empty)
-           :empty)
-          ((eql (ldb (byte 7 0) val) bool-f)
-           :bool-f)
-          ((eql (ldb (byte 7 0) val) bool-t)
-           :bool-t)))))
-
+(defun scheme-type-of (word)
+  "return scheme type of word WORD or return nil if unknown."
+  (cond
+    ((eql (ldb (byte 2 0) word) tag-fixnum) :fixnum)
+    (t
+     (let ((tag3 (ldb (byte 3 0) word)))
+       (cond
+         ((eql tag3 tag-pair) :pair)
+         ((eql tag3 tag-vector) :vector)
+         ((eql (ldb (byte 8 0) word) empty) :empty)
+         ((eql (ldb (byte 7 0) word) bool-f) :bool-f)
+         ((eql (ldb (byte 7 0) word) bool-t) :bool-t))))))
+       
 ;; Fnnnnn## 
 ;; immediate-value
 ;; 00000000 = 0
@@ -67,29 +70,25 @@
 ;; 00001100 = 3
 ;; 11111100 = -1
 ;; 11110100 = -3
-;; (format t "~32,'0,,b" (immediate-rep 3))
 
 (defun as-32b (x &optional stream)
   (format stream "~32,'0,,b" x))
 
 (defun convert-to-scheme-value (type val)
+  "convert word to scheme value."
   (ecase type
     ((:fixnum)
-     (let ((u 0))
-       ;; ;(setf (ldb (byte 31 0) u) (ldb (byte 31 2) val))
-       ;; ;(ldb (byte 32 0) val)
-       ;; (setf (ldb (byte 31 0) u) (ldb (byte 31 2) val))
-       ;; (format t ";; (ldb (byte 1 31) val) :~a~%" (ldb (byte 1 31) val))
-       ;; (setf (ldb (byte 1 31) u) (ldb (byte 1 31) val))
-       ;; (ldb (byte 32 0) u)
-       
-       (setf (ldb (byte 29 0) u) (ldb (byte 29 2) val))
-       (if (logbitp 31 val)
-           (let ((z (+ (lognot val) 1)))
-             (- (loop :for i :from 2 :to 29 :for x :from 0
-                   :sum (if (logbitp i z)
-                           (expt 2 x)
-                           0))))
+     (if (logbitp 31 val) ;; minus value
+         (loop :with z = (1+ (lognot val))
+            :for i :from 2 :to 29
+            :for x :from 0
+            :sum (if (logbitp i z)
+                     (expt 2 x)
+                     0) :into tot
+            :finally
+            (return (- tot)))
+         (let ((u 0))
+           (setf (ldb (byte 29 0) u) (ldb (byte 29 2) val))
            u)))
     ((:bool-f) #f)
     ((:bool-t) #t)
@@ -103,19 +102,17 @@
   "return value of scheme object OBJ and type. val is tagged value
 Error if invalid type."
   (let ((type (scheme-type-of val)))
-    (values
-     (convert-to-scheme-value type val)
-     type)))
+    (values (convert-to-scheme-value type val) type)))
 
 (defun immediate-rep (x)
   "return immediate representaion of X."
   (cond
     ((and (typep x 'fixnum) (< x (expt 2 29)))
-     (let ((u 0)) ;; little endian?? ;; TODO
+     (let ((u 0)) ;; little endian
        (setf (ldb (byte 2 0) u) #b00)
        (setf (ldb (byte 29 2) u) x)
-       (if (< x 0)
-           (setf (ldb (byte 1 31) u) 1))
+       (when (< x 0) ;; minus
+         (setf (ldb (byte 1 31) u) 1))
        u))
     ((null x) empty)
     ((eql x '#t) bool-t)
@@ -194,66 +191,51 @@ Error if invalid type."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; cons cell
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defgeneric vm-cons (vm a b)
-  (:documentation "make new cell on VM."))
-
 ;; CONS CELL
 ;; | CAR | 1 word
 ;; | CDR | 1 word
 
-(defun read-word (mem addr0)
-  (loop :with v = 0 :for addr :from addr0 :to (+ addr0 3) :for pos :from 0 :by 8
-     :do (setf (ldb (byte 8 pos) v) (address mem addr))
-     :finally (return v)))
+(defgeneric vm-cons (vm a b)
+  (:documentation "make new cell on VM."))
 
-(defun write-word (mem addr0 w)
-  (loop :for addr :from addr0 :to (+ addr0 3) :for pos :from 0 :by 8
-     :do (setf (address mem addr) (ldb (byte 8 pos) w))))
+(defun read-word (mem addr0)
+  "read word on memory."
+  (loop :with word = 0
+     :for addr :from addr0 :below (+ addr0 wordsize)
+     :for pos :from 0 :by 8
+     :do (setf (ldb (byte 8 pos) word) (address mem addr))
+     :finally (return word)))
+
+(defun write-word (mem addr0 word)
+  "write word on memory."
+  (loop :for addr :from addr0 :below (+ addr0 wordsize)
+     :for pos :from 0 :by 8
+     :do (setf (address mem addr) (ldb (byte 8 pos) word))))
 
 (defmethod vm-cons ((vm vm) a b)
   (with-accessors ((mem memory-of) (ap ap-of)) vm
     (let ((ap0 ap))
       (write-word mem ap a)
-      (write-word mem (+ ap 4) b)
-      (incf ap 8)
+      (write-word mem (+ ap wordsize) b)
+      (incf ap (* 2 wordsize))
       (setf (ldb (byte 3 0) ap0) tag-pair)
       ap0)))
-
-;; (defmethod vm-cons ((vm vm) a b)
-;;   (with-accessors ((mem memory-of) (ap ap-of)) vm
-;;     (let ((ap0 ap))
-;;       (setf (address mem ap) (ldb (byte 8 0) a))
-;;       (setf (address mem (+ 1 ap)) (ldb (byte 8 8) a))
-;;       (setf (address mem (+ 2 ap)) (ldb (byte 8 16) a))
-;;       (setf (address mem (+ 3 ap)) (ldb (byte 8 24) a))
-;;       (setf (address mem (+ 4 ap)) (ldb (byte 8 0) b))
-;;       (setf (address mem (+ 5 ap)) (ldb (byte 8 8) b))
-;;       (setf (address mem (+ 6 ap)) (ldb (byte 8 16) b))
-;;       (setf (address mem (+ 7 ap)) (ldb (byte 8 24) b))
-;;       (incf ap 8)
-;;       (setf (ldb (byte 3 0) ap0) tag-pair)
-;;       ap0)))
 
 (defgeneric vm-car (vm addr)
   (:documentation "car on VM."))
 
-(defmethod vm-car ((vm vm) val)
-  (with-accessors ((m memory-of)) vm
-    (let ((sv (scheme-value-of val)))
-      (read-word m sv))))
+(defmethod vm-car ((vm vm) word)
+  (with-accessors ((mem memory-of)) vm
+    (let ((addr (scheme-value-of word)))
+      (read-word mem addr))))
 
 (defgeneric vm-cdr (vm addr)
   (:documentation "car on VM."))
 
-(defmethod vm-cdr ((vm vm) val)
-  (with-accessors ((m memory-of)) vm
-    (let ((sv (scheme-value-of val)))
-      (read-word m (+ sv 4)))))
-
-(defvar *the-vm* nil)
-(defmacro with-vm ((vm) &body body)
-  `(let ((*the-vm* ,vm))
-     ,@body))
+(defmethod vm-cdr ((vm vm) word)
+  (with-accessors ((mem memory-of)) vm
+    (let ((addr (scheme-value-of word)))
+      (read-word mem (+ addr wordsize)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -279,122 +261,31 @@ Error if invalid type."
   (print-unreadable-object (vm stream)
     (with-accessors ((env get-env) (code get-code) (dump get-dump) (mem get-memory)
                      (sp sp-of) (ap ap-of)) vm
-      (format stream "VM ap: ~a sp: ~a stack-top(value): ~a(~a)" ap sp
-              (vm-stack-top vm)
-              (scheme-value-of (vm-stack-top vm))))))
+      (format stream "VM ap: ~a sp: ~a stack-top(raw): ~a(~a)" ap sp
+              (scheme-value-of (vm-stack-top vm))
+              (vm-stack-top vm)))))
 
 (defmethod describe-object ((vm vm) stream)
-  (with-accessors ( ;;(stack get-stack)
-                   (pc get-pc) (code get-code) (count get-execution-count)
+  (with-accessors ((pc get-pc) (code get-code) (count get-execution-count)
+                   (mem memory-of) (ap ap-of)
                    (profile get-profile)) vm
-    (format stream "Profile: number of execution: ~a~%" count)
-    (maphash (lambda (key val)
-               (format stream "~a: ~a~%" key val)) profile)
-    ;; (format stream "VM ap: ~a~%" (ap-of vm))
-    ;; (format stream "VM sp: ~a~%" (sp-of vm))
-    ;; (format stream "VM stack top: ~a~%" (scheme-value-of (vm-stack-top vm)))
-     (with-accessors ((mem memory-of) (ap ap-of)) vm
-       (loop :for i :from ap :downto 0 :by wordsize
-          :do
-            (format stream "~x : ~a ~%" i (read-word mem i))))
-    ;;(format stream "todo desc~%")
-    ))
+    (format stream "====Profile=:~% number of execution: ~a~%" count)
+    (maphash (lambda (key val) (format stream "~8,,,@a: ~a~%" key val)) profile)
+    (format stream "====Heap====:~%")
+    (loop :for i :from ap :downto 0 :by wordsize
+       :do (format stream "~8,'0,,x: ~4,,,@a ~%" i (read-word mem i)))))
 
-;; (defmethod dump ((vm vm))
-;;   (with-accessors ((mem memory-of) (ap ap-of)) vm
-;;     (format t "stack -> ~8,'0,,x;~%" (scheme-value-of (sp-of vm)))
-;;     (format t "env -> ~8,'0,,x;~%" (scheme-value-of (env-of vm)))
-;;     (format t "dump -> ~8,'0,,x;~%" (scheme-value-of (dump-of vm)))
-
-;;     (loop :for addr :from ap :downto 0 :by wordsize
-;;        :do
-;;        (let ((word (load-word mem addr)))
-;;          (if (scheme-type-of word) 
-;;              (multiple-value-bind (val type) (scheme-value-of word)
-;;                (format t "~8,'0,,x| ~a| ~a~%" addr type val))
-;;              (format t "~8,'0,,x| ~a| ~a~%" addr "unknown" "unknown")
-;;              )))))
-
-(defun format-type (type)
-  (case type
-    (:fixnum "FIXNUM")
-    (:pair "PAIR__")
-    (:vector "VECTOR")
-    (:empty "EMPTY_")
-    (:bool-f "BOOL_F")
-    (:bool-t "BOOL_T")))
-
-(defun format-val (val)
-  (if (numberp val)
-      (format nil "~8,'_,,d" val)
-      (let ((str (format nil "~a" val)))
-        (if (< (length str) 8)
-            (concatenate 'string 
-                         (loop repeat (- 8 (length str))
-                              collect #\_) str)
-            (subseq str 0 8)))))
-
-(defmethod graphviz-object ((vm vm) stream)
-  (format stream "digraph structs {~%")
-  (format stream "graph [fontsize=\"9\", fontname=\"monospace\"]~%")
-  (format stream "rankdir=LR~%")
-  ;;(format stream "edge [sametail,samehead]~%")
-  (format stream "node [shape=record, fontsize=9, fontname=\"monospace\", margin=\"0,0\"];~%")
-  (format stream "mem [color=orange4,label=\"");
-  ;; memory box
-  (with-accessors ((mem memory-of) (ap ap-of)) vm
-    (loop :for addr :from ap :downto 0 :by wordsize
-       :do
-       (multiple-value-bind (val type) (scheme-value-of (read-word mem addr))
-         (format stream "{<p~8,'0,,x> ~8,'0,,x| ~a| ~a}" addr addr 
-                 (format-type type) (format-val val))
-         (unless (= addr 0)
-           (format stream " | ")))))
-  (format stream "\"];~%")
-  ;; pointer
-  (with-accessors ((mem memory-of) (ap ap-of)) vm
-    (loop :for addr :from ap :downto 0 :by wordsize
-       :do
-       (multiple-value-bind (val type) (scheme-value-of (read-word mem addr))
-         (when (eql type :pair)
-           (format stream "mem:p~8,'0,,x:w -> mem:p~8,'0,,x:w~%"
-                   addr val)))))
-  ;; SECD pointer
-  (format stream "secd [color=indigo,label=\"{{<sp> sp | <env> env | <dump> dump | <ap> ap | <pc> pc }}\"];~%")
-
-  (format stream "secd:sp -> mem:p~8,'0,,x:w;~%" (scheme-value-of (sp-of vm)))
-  (format stream "secd:env -> mem:p~8,'0,,x:w;~%" (scheme-value-of (env-of vm)))
-  (format stream "secd:dump -> mem:p~8,'0,,x:w;~%" (scheme-value-of (dump-of vm)))
-  (format stream "secd:ap -> mem:p~8,'0,,x:w;~%" (ap-of vm))
-
-  ;; code
-  (format stream "code [color=navy,label=\"");
-  (loop :for c :across (code-of vm) for i from 0
-     :do
-     (progn
-       (format stream "<c~d> ~a" i c)
-       (unless (= i (- (length (code-of vm)) 1))
-         (format stream " | "))))
-  (format stream "\"];~%")
-  (format stream "secd:pc -> code:c~d:w;~%" (1- (pc-of vm)))
-  (format stream "}~%")
-  )
-
-(defun graphviz-vm (vm &optional (file "tmp.vm.dot"))
-  (with-open-file (out file :direction :output :if-exists :supersede)
-    (graphviz-object vm out))
-  (sb-ext:run-program "/opt/local/bin/dot" `("-Tpng" "-O" ,file)))
+;; VM method
 
 (defgeneric dispatch (insn vm)
   (:documentation "Dispatch VM instruction."))
 
 (defmethod dispatch (insn vm)
-  (format t ";base case: ~a~%" insn)
+  (format t ";; base case: ~a~%" insn)
   (describe vm))
 
 (defun code-ref (code idx)
   "refer code element of index IDX"
-  ;(aref code idx)
   (svref code idx))
 
 (defgeneric fetch-insn (vm)
@@ -426,6 +317,8 @@ Error if invalid type."
 ;;         (format t ";; end of code? ~a~%" vm))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; SECD operation
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defmacro vm-stack-pop (vm)
   (let ((top (gensym))
@@ -449,235 +342,4 @@ Error if invalid type."
        (let ((,top (vm-car ,vm ,dump)))
          (setf ,dump (vm-cdr ,vm ,dump))
          ,top))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; instructions
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defmacro def-insn (name (vm) &rest body)
-  "define instuction."
-  (let ((insn (gensym)))
-    `(defmethod dispatch ((,insn (eql ,(as-keyword name))) (,vm vm))
-       ,(if *debug*
-            `(let ((*print-circle* t))
-               (format t "; PC: ~a insn: ~a~%" (pc-of ,vm) ,insn)
-               (graphviz-vm ,vm (format nil "tmp.vm.~d.dot" (execution-count-of ,vm)))
-               )
-            )
-       ,(if *debug*
-            `(progn
-               (incf (execution-count-of ,vm))
-               (incf (gethash ,(as-keyword name) (profile-of ,vm) 0))))
-       ,@body)))
-
-;; NIL
-(def-insn NIL (vm)
-  (with-accessors ((sp sp-of)) vm
-    (setf sp (vm-cons vm (immediate-rep ()) sp))) ;; cons
-  (next vm))
-
-;; STOP
-(def-insn STOP (vm)
-  vm)
-
-;; LDC
-(def-insn LDC (vm)
-  (with-accessors ((pc pc-of) (sp sp-of)) vm
-    (let ((c (fetch-operand vm)))
-      ;(assert (integerp c))
-      (setf sp (vm-cons vm (immediate-rep c) sp)) ;; cons
-      (incf pc)
-      (next vm))))
-
-(defmacro def-binary-insn (name sym)
-  (let ((a (gensym))
-        (b (gensym))
-        (sp (gensym))
-        (vm (gensym)))
-    `(progn
-       (def-insn ,name (,vm)
-         (with-accessors ((,sp sp-of)) ,vm
-           (let* ((,a (vm-stack-pop ,vm))
-                  (,b (vm-stack-pop ,vm)))
-             ;; todo; not fast
-             (setf ,sp
-                   (vm-cons ,vm
-                            (immediate-rep
-                             (,sym (scheme-value-of ,a) (scheme-value-of ,b))) ,sp)))
-           (next ,vm))))))
-
-;; x = 4a; y = 4b; (x + y) = (4a + 4b) = 4(a + b)
-(def-insn + (vm)
-  (with-accessors ((sp sp-of)) vm
-    (let* ((a (vm-stack-pop vm))
-           (b (vm-stack-pop vm))
-           (res (+ a b)))
-      (setf sp (vm-cons vm res sp))
-      (next vm))))
-
-;; x = 4a; y = 4b; (x - y) = (4a - 4b) = 4(a - b)
-(def-insn - (vm)
-  (with-accessors ((sp sp-of)) vm
-    (let* ((a (vm-stack-pop vm))
-           (b (vm-stack-pop vm))
-           (res (- a b)))
-      (setf sp (vm-cons vm res sp))
-      (next vm))))
-
-(def-binary-insn * cl:*)
-
-;; x == y then 4x == 4y
-(def-insn = (vm)
-  (with-accessors ((sp sp-of)) vm
-    (let* ((a (vm-stack-pop vm))
-           (b (vm-stack-pop vm))
-           (res (= a b)))
-      (setf sp (vm-cons vm (if res
-                               (immediate-rep '#t)
-                               (immediate-rep '#f))
-                        sp))
-      (next vm))))
-
-(def-insn > (vm)
-  (with-accessors ((sp sp-of)) vm
-    (let* ((a (vm-stack-pop vm))
-           (b (vm-stack-pop vm))
-           (res (> (scheme-value-of a) (scheme-value-of b))))
-      (setf sp (vm-cons vm (if res
-                               (immediate-rep '#t)
-                               (immediate-rep '#f))
-                        sp))
-      (next vm))))
-
-(def-insn < (vm)
-  (with-accessors ((sp sp-of)) vm
-    (let* ((a (vm-stack-pop vm))
-           (b (vm-stack-pop vm))
-           (res (< (scheme-value-of a) (scheme-value-of b))))
-      (setf sp (vm-cons vm (if res
-                               (immediate-rep '#t)
-                               (immediate-rep '#f))
-                        sp))
-      (next vm))))
-
-;; CONS
-(def-insn CONS (vm)
-  (with-accessors ((sp sp-of)) vm
-    (let* ((a (vm-stack-pop vm))
-           (b (vm-stack-pop vm)))
-      (setf sp (vm-cons vm (vm-cons vm a b) sp))
-      (next vm))))
-
-;; TODO 20100425
-;; (def-insn CONS (vm)
-;;   (with-accessors ((sp sp-of)) vm
-;;     (setf sp (sp-of vm))
-;;     (next vm)))
-
-;; SEL CT CF CONT
-(def-insn SEL (vm)
-  (with-accessors ((pc pc-of) (code get-code) (dump dump-of)) vm
-    (let* ((x (vm-stack-pop vm))
-           (ct (code-ref code pc))
-           (cf (code-ref code (1+ pc)))
-           (cont (code-ref code (+ 2 pc))))
-      (setf pc (if (eql (scheme-value-of x) '#t)
-                   ct
-                   cf))
-      (setf dump (vm-cons vm (immediate-rep cont) dump))
-      (next vm))))
-
-;; JOIN
-(def-insn JOIN (vm)
-  (with-accessors ((pc set-pc)) vm
-    (let ((cr (vm-dump-pop vm)))
-      (setf pc (scheme-value-of cr))
-      (next vm))))
-
-;;(defun locate (level j env)
-;;  "Return i th variable in j level in environment ENV in runtime."
-;;  (nth (- j 1) (nth (- level 1) env)))
-
-(defmethod locate ((vm vm) level n)
-  (with-accessors ((env env-of)) vm
-    (let ((env* (loop :repeat level
-                   :for e = env :then (vm-cdr vm e)
-                   :finally (return (vm-car vm e)))))
-      (loop :repeat n
-         :for var = env* :then (vm-cdr vm var)
-         :finally (return (vm-car vm var))))))
-
-;; LD
-(def-insn LD (vm)
-  (with-accessors ((sp sp-of) (env get-env) (pc pc-of) (code get-code)) vm
-    (let ((level (code-ref code pc))
-          (n (code-ref code (1+ pc)))
-          (oldpc (get-pc vm)))
-      (setf sp (vm-cons vm (locate vm level n) sp))
-      (setf pc (+ 2 oldpc))
-      (next vm))))
-
-;; LDF     s e (LDF f.c) d            ->  ((f.e).s) e c d
-(def-insn LDF (vm)
-  (with-accessors ((sp sp-of) (e get-env) (pc pc-of) (code get-code)) vm
-    (let ((f (fetch-operand vm)) ;; PC
-          (c (code-ref code (+ 1 pc))))
-      (setf sp (vm-cons vm (vm-cons vm (immediate-rep f) e) sp))
-      (setf pc c)
-      (next vm))))
-
-;; AP      ((f.e') v.s) e (AP.c) d    ->  NIL (v.e') f (s e c.d)
-(def-insn AP (vm)
-  (with-accessors ((env env-of) (pc pc-of) (dump dump-of) (sp sp-of) (code get-code)) vm
-    (let* ((c pc) ;;
-           (closure (vm-car vm sp)) ;; (f.e')
-           (fbody-pc (scheme-value-of (vm-car vm closure))) ;; f
-           (fenv (vm-cdr vm closure)) ;; e'
-           (v (vm-car vm (vm-cdr vm sp))) ;; v
-           (s (vm-cdr vm (vm-cdr vm sp))) ;; s
-           (env-old env))
-      (setf sp (vm-cons vm (immediate-rep ()) (immediate-rep ()))) ;; () be care
-      (setf env (vm-cons vm v fenv))
-      (setf pc fbody-pc)
-      ;;(setf dump (vm-cons vm s (vm-cons vm env-old (vm-cons vm c dump))))
-      (setf dump (vm-cons vm s (vm-cons vm env-old (vm-cons vm (immediate-rep c) dump))))
-      (next vm))))
-
-;; RTN     (x.z) e' (RTN.q) (s e c.d) ->  (x.s) e c d
-(def-insn RTN (vm)
-  (with-accessors ((stack sp-of) (env set-env) (pc pc-of) (dump dump-of)) vm
-    (let* ((x (vm-stack-pop vm))
-           (s (vm-car vm dump))
-           (e (vm-car vm (vm-cdr vm dump)))
-           (c (vm-car vm (vm-cdr vm (vm-cdr vm dump))))
-           (d (vm-cdr vm (vm-cdr vm (vm-cdr vm dump)))))
-      (setf stack (vm-cons vm x s))
-      (setf env e)
-      ;;(setf pc c)
-      (setf pc (scheme-value-of c))
-      (setf dump d)
-      (next vm))))
-
-;; DUM
-(def-insn DUM (vm)
-  (with-accessors ((env env-of)) vm
-    (setf env (vm-cons vm (gensym) env))
-    (next vm)))
-
-;; RAP     ((f.(W.e)) v.s) (W.e) (RAP.c) d  ->  nil rplaca((W.e),v) f (s e c.d)
-(def-insn RAP (vm)
-  (with-accessors ((sp sp-of) (env set-env) (pc pc-of) (dump dump-of)) vm
-    ))
-
-;; (def-insn RAP (vm)
-;;   (with-accessors ((sp sp-of) (env set-env) (pc pc-of) (dump dump-of)) vm
-;;     ;; todo consider how to recover closure from vm-stack
-;;     (destructuring-bind ((f . WW) v . s) stack
-;;       (let ((c pc))
-;;         (setf (car WW) v) ;; make circular-list
-;;         (setf stack :NIL)
-;;         (setf env WW)
-;;         (setf pc f)
-;;         (setf dump (append (list s (cdr WW) c) dump))
-;;         (next vm)))))
 
