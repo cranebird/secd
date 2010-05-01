@@ -309,7 +309,6 @@ Error if invalid type."
 ;;          ($display-char #\)))))
 
 
-
 ;; VM method
 
 (defgeneric dispatch (insn vm)
