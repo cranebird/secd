@@ -42,8 +42,6 @@
 
 ;;(defconstant bool-mask #b10111111)
 
-
-
 (defconstant wordsize 4)
 
 (defconstant tag-fixnum #b00)
@@ -261,19 +259,56 @@ Error if invalid type."
   (print-unreadable-object (vm stream)
     (with-accessors ((env get-env) (code get-code) (dump get-dump) (mem get-memory)
                      (sp sp-of) (ap ap-of)) vm
-      (format stream "VM ap: ~a sp: ~a stack-top(raw): ~a(~a)" ap sp
+      (format stream "VM ap: ~a sp: ~x(~x) stack-top(raw): ~a(~a)" ap sp (scheme-value-of sp)
               (scheme-value-of (vm-stack-top vm))
               (vm-stack-top vm)))))
 
+(defun display-memory (addr mem sp &optional (stream t))
+  (format stream "~32,'0,,b:(~a) ~4,,,@a | ~a ~a~%"
+                   addr addr (read-word mem addr)
+                   (scheme-value-of (read-word mem addr))
+                   (if (eql addr (scheme-value-of sp))
+                       "<- sp"
+                       "")))
+
 (defmethod describe-object ((vm vm) stream)
   (with-accessors ((pc get-pc) (code get-code) (count get-execution-count)
-                   (mem memory-of) (ap ap-of)
+                   (mem memory-of) (ap ap-of) (sp get-sp)
                    (profile get-profile)) vm
     (format stream "====Profile=:~% number of execution: ~a~%" count)
     (maphash (lambda (key val) (format stream "~8,,,@a: ~a~%" key val)) profile)
     (format stream "====Heap====:~%")
-    (loop :for i :from ap :downto 0 :by wordsize
-       :do (format stream "~8,'0,,x: ~4,,,@a ~%" i (read-word mem i)))))
+    (loop :for addr :from 0 :to (+ ap wordsize) :by wordsize
+       :do (display-memory addr mem sp stream))
+    ;; S
+    (format stream "====Stack===:~%")
+    ;; print LIST
+    ))
+
+;; (defun display-list (addr top-p &optional stream)
+;;   (when top-p
+;;     (format stream "~a" #\())
+;;   (display-obj (vm-
+
+;; (define (display-pair)
+;;   '(code (obj top) ()
+;;      (if top
+;;          ($display-char #\())
+;;      ($display-obj (car obj))
+;;      (if (pair? (cdr obj))
+;;          (begin
+;;            ($display-char #\Space)
+;;            ($display-pair (cdr obj) #f))
+;;          (if (not (null? (cdr obj)))
+;;              (begin
+;;                ($display-char #\Space)
+;;                ($display-char #\.)
+;;                ($display-char #\Space)
+;;                ($display-obj (cdr obj)))))
+;;      (if top
+;;          ($display-char #\)))))
+
+
 
 ;; VM method
 
