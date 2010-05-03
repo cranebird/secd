@@ -19,7 +19,7 @@
 ;; tagged pointer
 
 ;(defparameter *memory-size* 64000)
-(defparameter *memory-size* (* 50000 4)) ;; SCM_VM_STACK_SIZE in words = 10000
+(defparameter *memory-size* (* 100 4)) ;; SCM_VM_STACK_SIZE in words = 10000
 ;(defparameter *memory-size* 64000)
 ;(defparameter *memory-size* 320)
 
@@ -122,12 +122,26 @@ Error if invalid type."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defclass vm ()
-  ((memory
-    :accessor memory-of
-    :reader get-memory
-    :writer (setf set-memory)
-    :initform nil
+  (
+   ;; (memory
+   ;;  :accessor memory-of
+   ;;  :reader get-memory
+   ;;  :writer (setf set-memory)
+   ;;  :initform (make-memory *memory-size*)
+   ;;  :initarg :memory)
+   (memory-a
+    :accessor memory-a
+    :initform (make-memory *memory-size*)
     :initarg :memory)
+   (memory-b
+    :accessor memory-b
+    :initform (make-memory *memory-size*))
+   (from-space
+    :accessor from-space-of
+    :initform :a)
+   (to-space
+    :accessor to-space-of
+    :initform :b)
    (ap
     :accessor ap-of
     :reader get-ap
@@ -186,6 +200,31 @@ Error if invalid type."
     :documentation "instruction => executed count hash-table"))
   (:documentation "The scheme virtual machine class"))
 
+(defmethod memory-of ((vm vm))
+  (if (eql :a (from-space-of vm))
+      (memory-a vm)
+      (memory-b vm)))
+
+(defmethod get-memory ((vm vm)) ;; from-space
+  (if (eql :a (from-space-of vm))
+      (memory-a vm)
+      (memory-b vm)))
+
+(defmethod from-memory ((vm vm))
+  (if (eql :a (from-space-of vm))
+      (memory-a vm)
+      (memory-b vm)))
+
+(defmethod to-memory ((vm vm))
+  (if (eql :a (from-space-of vm))
+      (memory-b vm)
+      (memory-a vm)))
+
+(defmethod swap-space ((vm vm))
+  (format t "*************swap!~%")
+  (rotatef (from-space-of vm)
+           (to-space-of vm)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; cons cell
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -193,28 +232,83 @@ Error if invalid type."
 ;; | CAR | 1 word
 ;; | CDR | 1 word
 
-(defgeneric vm-cons (vm a b)
-  (:documentation "make new cell on VM."))
+(defgeneric read-word (mem addr0)
+  (:documentation "read word on memory."))
 
-(defun read-word (mem addr0)
-  "read word on memory."
+(defmethod read-word (mem addr0)
   (loop :with word = 0
      :for addr :from addr0 :below (+ addr0 wordsize)
      :for pos :from 0 :by 8
      :do (setf (ldb (byte 8 pos) word) (address mem addr))
      :finally (return word)))
 
-(defun write-word (mem addr0 word)
-  "write word on memory."
+(defgeneric write-word (mem addr0 word)
+  (:documentation "write word on memory."))
+
+(defmethod write-word (mem addr0 word)
   (loop :for addr :from addr0 :below (+ addr0 wordsize)
      :for pos :from 0 :by 8
      :do (setf (address mem addr) (ldb (byte 8 pos) word))))
 
+(defgeneric vm-cons (vm a b)
+  (:documentation "make new cell on VM."))
+
+(defmethod copying ((vm vm))
+  (write-word (to-memory vm) 0 empty)
+  (write-word (to-memory vm) (+ 0 wordsize) 0)
+  (let ((to-ap (* 2 wordsize)))
+    ;; NOT WORK TODO; 20100503
+    (let ((newsp to-ap))
+      (setq to-ap (copying-iter vm (scheme-value-of (sp-of vm)) to-ap)) ;; copy car
+      (setq to-ap (copying-iter vm (+ wordsize (scheme-value-of (sp-of vm))) to-ap)) ;; copy cdr
+      (setf (sp-of vm) (add-tag-pair newsp)))
+    
+    (let ((newenv to-ap))
+      (setq to-ap (copying-iter vm (scheme-value-of (env-of vm)) to-ap))
+      (setq to-ap (copying-iter vm (+ wordsize (scheme-value-of (env-of vm))) to-ap))
+      (setf (env-of vm) (add-tag-pair newenv)))
+
+    (let ((newdump to-ap))
+      (setq to-ap (copying-iter vm (scheme-value-of (dump-of vm)) to-ap))
+      (setq to-ap (copying-iter vm (+ wordsize (scheme-value-of (dump-of vm))) to-ap))
+      (setf (dump-of vm) (add-tag-pair newdump)))
+    to-ap
+    )
+  )
+
+(defmethod copying-iter ((vm vm) addr to-ap0)
+  (let* ((to-ap to-ap0)
+         (val (read-word (from-memory vm) addr)))
+    (write-word (to-memory vm) to-ap val)
+    (incf to-ap wordsize)
+
+    (when (eql (scheme-type-of val) :pair)
+      ;(format t ";; recursive copying addr=~a:~%" addr)
+      (setq to-ap (copying-iter vm (scheme-value-of val) to-ap))
+      (setq to-ap (copying-iter vm (+ wordsize (scheme-value-of val)) to-ap)))
+
+    to-ap))
+
+;      (when (> ap (* 0.2 (length (memory-of vm))))
+;; (when t
+;;   (format t "GC!~%")
+;;   ;; (copying vm)
+;;   ;; (swap-space vm)
+;;   (describe vm)
+;;   ;(graphviz-vm vm)
+;;   )
+
+(defun add-tag-pair (x)
+  (let ((y x))
+    (setf (ldb (byte 3 0) y) tag-pair)
+    y))
+
+
 (defmethod vm-cons ((vm vm) a b)
-  (with-accessors ((mem memory-of) (ap ap-of)) vm
+  (with-accessors ((ap ap-of)) vm
     (let ((ap0 ap))
-      (write-word mem ap a)
-      (write-word mem (+ ap wordsize) b)
+      (write-word (memory-of vm) ap a)
+      (write-word (memory-of vm) (+ ap wordsize) b)
       (incf ap (* 2 wordsize))
       (setf (ldb (byte 3 0) ap0) tag-pair)
       ap0)))
@@ -223,28 +317,25 @@ Error if invalid type."
   (:documentation "car on VM."))
 
 (defmethod vm-car ((vm vm) word)
-  (with-accessors ((mem memory-of)) vm
-    (let ((addr (scheme-value-of word)))
-      (read-word mem addr))))
+  (let ((addr (scheme-value-of word)))
+    (read-word (memory-of vm) addr)))
 
 (defgeneric vm-cdr (vm addr)
   (:documentation "car on VM."))
 
 (defmethod vm-cdr ((vm vm) word)
-  (with-accessors ((mem memory-of)) vm
-    (let ((addr (scheme-value-of word)))
-      (read-word mem (+ addr wordsize)))))
+  (let ((addr (scheme-value-of word)))
+    (read-word (memory-of vm) (+ addr wordsize))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun make-vm0 ()
   "Make vm instance and initialize."
   (let ((vm (make-instance 'vm)))
-    (with-accessors ((mem memory-of) (ap ap-of) (sp set-sp) (env set-env) (dump set-dump)) vm
-      (setf mem (make-memory *memory-size*))
-      (setf (address mem 0) (immediate-rep ()))
-      (incf ap 8)
-      (setf sp 1
+    (with-accessors ((ap ap-of) (sp set-sp) (env set-env) (dump set-dump)) vm
+      (write-word (memory-of vm) 0 empty)
+      (incf ap (* wordsize 2))
+      (setf sp 1 ;; TODO pointer to empty ; (let ((x 0)) (setf (ldb (byte 3 0) x) tag-pair) x) == 1
             env 1
             dump 1))
     vm))
@@ -257,32 +348,47 @@ Error if invalid type."
 
 (defmethod print-object ((vm vm) stream)
   (print-unreadable-object (vm stream)
-    (with-accessors ((env get-env) (code get-code) (dump get-dump) (mem get-memory)
-                     (sp sp-of) (ap ap-of)) vm
+    (with-accessors ((env get-env) (code get-code) (dump get-dump)
+                     (sp get-sp) (ap get-ap)) vm
       (format stream "VM ap: ~a sp: ~x(~x) stack-top(raw): ~a(~a)" ap sp (scheme-value-of sp)
-              (scheme-value-of (vm-stack-top vm))
-              (vm-stack-top vm)))))
+              (scheme-value-of (vm-car vm sp))
+              (vm-car vm sp)))))
 
-(defun display-memory (addr mem sp &optional (stream t))
-  (format stream "~32,'0,,b:(~a) ~4,,,@a | ~a ~a~%"
-                   addr addr (read-word mem addr)
-                   (scheme-value-of (read-word mem addr))
-                   (if (eql addr (scheme-value-of sp))
-                       "<- sp"
-                       "")))
+(defun display-memory (vm mem addr &optional (stream t))
+  (let ((arrow (loop :for p :in (list (sp-of vm)
+                                      (env-of vm)
+                                      (dump-of vm))
+                  :for s :in '("sp" "env" "dump")
+                  if (eql addr (scheme-value-of p))
+                  collect s)))
+    (let ((word (read-word mem addr)))
+      (format stream "~32,'0,,b:(~4,,,a) ~8,,,@a | ~a ~a~%"
+              addr addr word (scheme-value-of word)
+              (if arrow
+                  (format nil "<-~{~a~^ ~}" arrow)
+                  "")))))
+
+(defmethod describe-from-space ((vm vm) &optional (stream t))
+  (format stream "====From Space(~a)====:~%" (from-space-of vm))
+  (loop :for addr :from 0 :to (+ (get-ap vm) wordsize) :by wordsize
+       :do (display-memory vm (from-memory vm) addr stream)))
+
+(defmethod describe-to-space ((vm vm) &optional (stream t))
+  (format stream "====To Space(~a)====:~%" (to-space-of vm))
+  ;; (format stream "~%~a~%" (to-memory vm))
+  (loop :for addr :from 0 :below (length (to-memory vm)) :by wordsize
+       :do (display-memory vm (to-memory vm) addr stream)))
 
 (defmethod describe-object ((vm vm) stream)
   (with-accessors ((pc get-pc) (code get-code) (count get-execution-count)
-                   (mem memory-of) (ap ap-of) (sp get-sp)
-                   (profile get-profile)) vm
+                   (ap get-ap) (sp get-sp) (profile get-profile)) vm
     (format stream "====Profile=:~% number of execution: ~a~%" count)
     (maphash (lambda (key val) (format stream "~8,,,@a: ~a~%" key val)) profile)
-    (format stream "====Heap====:~%")
-    (loop :for addr :from 0 :to (+ ap wordsize) :by wordsize
-       :do (display-memory addr mem sp stream))
+    (describe-from-space vm stream)
+    ;;(describe-to-space vm stream)
     ;; S
     (format stream "====Stack===:~%")
-    ;; print LIST
+    ;; print LIST TODO
     ))
 
 ;; (defun display-list (addr top-p &optional stream)
@@ -354,13 +460,13 @@ Error if invalid type."
 ;; SECD operation
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defmacro vm-stack-pop (vm)
-  (let ((top (gensym))
-        (sp (gensym)))
-    `(with-accessors ((,sp sp-of)) ,vm
-       (let ((,top (vm-car ,vm ,sp)))
-         (setf ,sp (vm-cdr ,vm ,sp))
-         ,top))))
+;; (defmacro vm-stack-pop (vm)
+;;   (let ((top (gensym))
+;;         (sp (gensym)))
+;;     `(with-accessors ((,sp sp-of)) ,vm
+;;        (let ((,top (vm-car ,vm ,sp)))
+;;          (setf ,sp (vm-cdr ,vm ,sp))
+;;          ,top))))
 
 (defgeneric vm-stack-top (vm)
   (:documentation "car of stack."))
@@ -369,11 +475,5 @@ Error if invalid type."
   (with-accessors ((sp sp-of)) vm
     (vm-car vm sp)))
 
-(defmacro vm-dump-pop (vm)
-  (let ((top (gensym))
-        (dump (gensym)))
-    `(with-accessors ((,dump dump-of)) ,vm
-       (let ((,top (vm-car ,vm ,dump)))
-         (setf ,dump (vm-cdr ,vm ,dump))
-         ,top))))
+
 
