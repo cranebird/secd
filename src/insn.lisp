@@ -71,8 +71,8 @@
     `(progn
        (def-insn ,name (,vm)
          (with-accessors ((,sp sp-of)) ,vm
-           (let* ((,a (vm-stack-pop ,vm))
-                  (,b (vm-stack-pop ,vm)))
+           (let* ((,a (vm-car ,vm ,sp))
+                  (,b (vm-car ,vm (vm-cdr ,vm ,sp))))
              ;; todo; not fast
              (setf ,sp
                    (vm-cons ,vm
@@ -81,14 +81,6 @@
            (next ,vm))))))
 
 ;; x = 4a; y = 4b; (x + y) = (4a + 4b) = 4(a + b)
-;; (def-insn + (vm)
-;;   (with-accessors ((sp sp-of)) vm
-;;     (let* ((a (vm-stack-pop vm))
-;;            (b (vm-stack-pop vm))
-;;            (res (+ a b)))
-;;       (setf sp (vm-cons vm res sp))
-;;       (next vm))))
-
 (def-insn + (vm)
   (with-accessors ((sp sp-of)) vm
     (let* ((a (vm-car vm sp))
@@ -100,10 +92,10 @@
 ;; x = 4a; y = 4b; (x - y) = (4a - 4b) = 4(a - b)
 (def-insn - (vm)
   (with-accessors ((sp sp-of)) vm
-    (let* ((a (vm-stack-pop vm))
-           (b (vm-stack-pop vm))
+    (let* ((a (vm-car vm sp))
+           (b (vm-car vm (vm-cdr vm sp)))
            (res (- a b)))
-      (setf sp (vm-cons vm res sp))
+      (setf sp (vm-cons vm res (vm-cdr vm (vm-cdr vm sp))))
       (next vm))))
 
 (def-binary-insn * cl:*)
@@ -111,79 +103,103 @@
 ;; x == y then 4x == 4y
 (def-insn = (vm)
   (with-accessors ((sp sp-of)) vm
-    (let* ((a (vm-stack-pop vm))
-           (b (vm-stack-pop vm))
-           (res (= a b)))
-      (setf sp (vm-cons vm (if res
-                               bool-t
-                               bool-f)
-                        sp))
+    (let* ((a (vm-car vm sp))
+           (b (vm-car vm (vm-cdr vm sp)))
+           (res (if (= a b) bool-t bool-f)))
+      (setf sp (vm-cons vm res (vm-cdr vm (vm-cdr vm sp))))
       (next vm))))
 
 (def-insn > (vm)
   (with-accessors ((sp sp-of)) vm
-    (let* ((a (vm-stack-pop vm))
-           (b (vm-stack-pop vm))
-           (res (> (scheme-value-of a) (scheme-value-of b))))
-      (setf sp (vm-cons vm (if res
-                               bool-t
-                               bool-f)
-                        sp))
+    (let* ((a (vm-car vm sp))
+           (b (vm-car vm (vm-cdr vm sp)))
+           (res (if (> (scheme-value-of a) (scheme-value-of b))
+                    bool-t
+                    bool-f)))
+      (setf sp (vm-cons vm res (vm-cdr vm (vm-cdr vm sp))))
       (next vm))))
 
 (def-insn < (vm)
   (with-accessors ((sp sp-of)) vm
-    (let* ((a (vm-stack-pop vm))
-           (b (vm-stack-pop vm))
-           (res (< (scheme-value-of a) (scheme-value-of b))))
-      (setf sp (vm-cons vm (if res
-                               bool-t
-                               bool-f)
-                        sp))
+    (let* ((a (vm-car vm sp))
+           (b (vm-car vm (vm-cdr vm sp)))
+           (res (if (< (scheme-value-of a) (scheme-value-of b))
+                    bool-t
+                    bool-f)))
+      (setf sp (vm-cons vm res (vm-cdr vm (vm-cdr vm sp))))
       (next vm))))
 
 ;; CONS
 (def-insn CONS (vm)
   (with-accessors ((sp sp-of)) vm
-    (let* ((a (vm-stack-pop vm))
-           (b (vm-stack-pop vm)))
-      (setf sp (vm-cons vm (vm-cons vm a b) sp))
+    (let* ((a (vm-car vm sp))
+           (b (vm-car vm (vm-cdr vm sp))))
+      (setf sp (vm-cons vm (vm-cons vm a b) (vm-cdr vm (vm-cdr vm sp))))
       (next vm))))
 
 (def-insn CAR (vm)
   (with-accessors ((sp sp-of)) vm
-    (let* ((a (vm-stack-pop vm)))
-      (setf sp (vm-cons vm (vm-car vm a) sp))
-      (next vm))))
+    (setf sp (vm-car vm sp))
+    (next vm)))
 
 (def-insn CDR (vm)
   (with-accessors ((sp sp-of)) vm
-    (let* ((a (vm-stack-pop vm)))
-      (setf sp (vm-cons vm (vm-cdr vm a) sp))
+    (vm-assert (eql (scheme-type-of sp) :pair) (sp) "CDR: scheme-type-of sp should be :PAIR")
+    (let* ((a (vm-car vm sp))
+           (x (vm-cdr vm a)))
+      (vm-assert (eql (scheme-type-of a) :pair) (a) "CDR: scheme-type-of a should be :PAIR")
+      (setf sp (vm-cons vm x (vm-cdr vm sp)))
+      (vm-assert (eql (scheme-type-of sp) :pair) (sp) "CDR: scheme-type-of sp should be :PAIR")
       (next vm))))
+
+;; (def-insn CDR (vm)
+;;   (with-accessors ((sp sp-of)) vm
+;;     (let* ((a (vm-stack-pop vm)))
+;;       (setf sp (vm-cons vm (vm-cdr vm a) sp))
+;;       (next vm))))
 
 ;; SEL CT CF CONT
 ;; SEL     (x.s) e (SEL ct cf.c) d   ->  s e c' (c.d)
 ;;                 where c' = ct if x is T, and cf if x is F
-
 (def-insn SEL (vm)
-  (with-accessors ((pc pc-of) (code get-code) (dump dump-of)) vm
-    (let* ((x (vm-stack-pop vm))
+  (with-accessors ((sp sp-of) (pc pc-of) (code get-code) (dump dump-of)) vm
+    (let* ((x (vm-car vm sp))
            (ct (code-ref code pc))
            (cf (code-ref code (1+ pc)))
            (cont (code-ref code (+ 2 pc))))
-      (setf pc (if (eql (scheme-value-of x) '#t)
+      (setf sp (vm-cdr vm sp)
+            pc (if (eql (scheme-value-of x) '#t)
                    ct
                    cf)
             dump (vm-cons vm (immediate-rep cont) dump))
       (next vm))))
 
+;; (def-insn SEL (vm)
+;;   (with-accessors ((pc pc-of) (code get-code) (dump dump-of)) vm
+;;     (let* ((x (vm-stack-pop vm))
+;;            (ct (code-ref code pc))
+;;            (cf (code-ref code (1+ pc)))
+;;            (cont (code-ref code (+ 2 pc))))
+;;       (setf pc (if (eql (scheme-value-of x) '#t)
+;;                    ct
+;;                    cf)
+;;             dump (vm-cons vm (immediate-rep cont) dump))
+;;       (next vm))))
+
 ;; JOIN
+;; JOIN    s e (JOIN.c) (cr.d)  ->  s e cr d
 (def-insn JOIN (vm)
-  (with-accessors ((pc set-pc)) vm
-    (let ((cr (vm-dump-pop vm)))
+  (with-accessors ((dump dump-of) (pc set-pc)) vm
+    (let ((cr (vm-car vm dump)))
       (setf pc (scheme-value-of cr))
+      (setf dump (vm-cdr vm dump))
       (next vm))))
+
+;; (def-insn JOIN (vm)
+;;   (with-accessors ((pc set-pc)) vm
+;;     (let ((cr (vm-dump-pop vm)))
+;;       (setf pc (scheme-value-of cr))
+;;       (next vm))))
 
 ;;(defun locate (level j env)
 ;;  "Return i th variable in j level in environment ENV in runtime."
@@ -239,7 +255,7 @@
 ;; RTN     (x.z) e' (RTN.q) (s e c.d) ->  (x.s) e c d
 (def-insn RTN (vm)
   (with-accessors ((sp sp-of) (env set-env) (pc pc-of) (dump dump-of)) vm
-    (let* ((x (vm-stack-pop vm))
+    (let* ((x (vm-car vm sp))
            (s (vm-car vm dump))
            (e (vm-car vm (vm-cdr vm dump)))
            (c (vm-car vm (vm-cdr vm (vm-cdr vm dump))))
@@ -249,6 +265,19 @@
             pc (scheme-value-of c)
             dump d)
       (next vm))))
+
+;; (def-insn RTN (vm)
+;;   (with-accessors ((sp sp-of) (env set-env) (pc pc-of) (dump dump-of)) vm
+;;     (let* ((x (vm-stack-pop vm))
+;;            (s (vm-car vm dump))
+;;            (e (vm-car vm (vm-cdr vm dump)))
+;;            (c (vm-car vm (vm-cdr vm (vm-cdr vm dump))))
+;;            (d (vm-cdr vm (vm-cdr vm (vm-cdr vm dump)))))
+;;       (setf sp (vm-cons vm x s)
+;;             env e
+;;             pc (scheme-value-of c)
+;;             dump d)
+;;       (next vm))))
 
 ;; DUM
 (def-insn DUM (vm)
