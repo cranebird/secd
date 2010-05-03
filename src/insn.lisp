@@ -14,32 +14,40 @@
 
 (in-package :secd)
 
+(defmacro vm-assert (&rest rest)
+  (when *debug*
+      `(assert ,@rest)))
+
 (defmacro def-insn (name (vm) &rest body)
   "define instuction."
   (let ((insn (gensym)))
     `(defmethod dispatch ((,insn (eql ,(as-keyword name))) (,vm vm))
+       ;; (when (> (execution-count-of ,vm) 1)
+       ;;   (setf (ap-of ,vm) (copying ,vm))
+       ;;   (swap-space ,vm))
+
        ,(if *debug*
             `(let ((*print-circle* t))
                (format t "; PC: ~a insn: ~a~%" (pc-of ,vm) ,insn)
-               (describe ,vm)
+               ;; (describe ,vm)
                ;; (graphviz-vm ,vm (format nil "tmp.vm.~d.dot" (execution-count-of ,vm)))
                ))
        ,(if *profile*
             `(progn
                (incf (execution-count-of ,vm))
                (incf (gethash ,(as-keyword name) (profile-of ,vm) 0))))
-       ,@body)))
+       ;;
+       
+       ;;
+       ,@body
+       )))
 
 ;; NIL     s e (NIL.c) d        ->  (nil.s) e c d
-;; (def-insn NIL (vm)
-;;   (s (cons () s))
-;;   (e e)
-;;   (c c)
-;;   (d d))
-
 (def-insn NIL (vm)
   (with-accessors ((sp sp-of)) vm
+    (vm-assert (eql (scheme-type-of sp) :pair) (sp) "NIL: scheme-type-of sp should be :PAIR")
     (setf sp (vm-cons vm empty sp)) ;; cons
+    (vm-assert (eql (scheme-type-of sp) :pair) (sp) "NIL: scheme-type-of sp should be :PAIR")
     (next vm)))
 
 ;; STOP
@@ -73,12 +81,20 @@
            (next ,vm))))))
 
 ;; x = 4a; y = 4b; (x + y) = (4a + 4b) = 4(a + b)
+;; (def-insn + (vm)
+;;   (with-accessors ((sp sp-of)) vm
+;;     (let* ((a (vm-stack-pop vm))
+;;            (b (vm-stack-pop vm))
+;;            (res (+ a b)))
+;;       (setf sp (vm-cons vm res sp))
+;;       (next vm))))
+
 (def-insn + (vm)
   (with-accessors ((sp sp-of)) vm
-    (let* ((a (vm-stack-pop vm))
-           (b (vm-stack-pop vm))
+    (let* ((a (vm-car vm sp))
+           (b (vm-car vm (vm-cdr vm sp)))
            (res (+ a b)))
-      (setf sp (vm-cons vm res sp))
+      (setf sp (vm-cons vm res (vm-cdr vm (vm-cdr vm sp))))
       (next vm))))
 
 ;; x = 4a; y = 4b; (x - y) = (4a - 4b) = 4(a - b)
@@ -134,7 +150,22 @@
       (setf sp (vm-cons vm (vm-cons vm a b) sp))
       (next vm))))
 
+(def-insn CAR (vm)
+  (with-accessors ((sp sp-of)) vm
+    (let* ((a (vm-stack-pop vm)))
+      (setf sp (vm-cons vm (vm-car vm a) sp))
+      (next vm))))
+
+(def-insn CDR (vm)
+  (with-accessors ((sp sp-of)) vm
+    (let* ((a (vm-stack-pop vm)))
+      (setf sp (vm-cons vm (vm-cdr vm a) sp))
+      (next vm))))
+
 ;; SEL CT CF CONT
+;; SEL     (x.s) e (SEL ct cf.c) d   ->  s e c' (c.d)
+;;                 where c' = ct if x is T, and cf if x is F
+
 (def-insn SEL (vm)
   (with-accessors ((pc pc-of) (code get-code) (dump dump-of)) vm
     (let* ((x (vm-stack-pop vm))
