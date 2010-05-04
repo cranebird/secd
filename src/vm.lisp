@@ -18,10 +18,7 @@
 
 ;; tagged pointer
 
-;(defparameter *memory-size* 64000)
-(defparameter *memory-size* (* 100 4)) ;; SCM_VM_STACK_SIZE in words = 10000
-;(defparameter *memory-size* 64000)
-;(defparameter *memory-size* 320)
+(defparameter *memory-size* 1000) ;; SCM_VM_STACK_SIZE in words = 10000
 
 (defun make-memory (size)
   "make memory array"
@@ -340,17 +337,6 @@ Error if invalid type."
             dump empty))
     vm))
 
-;; (defun make-vm0 ()
-;;   "Make vm instance and initialize."
-;;   (let ((vm (make-instance 'vm)))
-;;     (with-accessors ((ap ap-of) (sp set-sp) (env set-env) (dump set-dump)) vm
-;;       (write-word (memory-of vm) 0 empty)
-;;       (incf ap (* wordsize 2))
-;;       (setf sp 1 ;; TODO pointer to empty ; (let ((x 0)) (setf (ldb (byte 3 0) x) tag-pair) x) == 1
-;;             env 1
-;;             dump 1))
-;;     vm))
-
 (defun make-vm (code)
   "Make vm instance."
   (let ((vm (make-vm0)))
@@ -361,9 +347,12 @@ Error if invalid type."
   (print-unreadable-object (vm stream)
     (with-accessors ((env get-env) (code get-code) (dump get-dump)
                      (sp get-sp) (ap get-ap)) vm
-      (format stream "VM ap: ~a sp: ~x(~x) stack-top(raw): ~a(~a)" ap sp (scheme-value-of sp)
-              (scheme-value-of (vm-car vm sp))
-              (vm-car vm sp)))))
+      (format stream "VM ap: ~a sp: ~x(~x) " ap sp (scheme-value-of sp))
+
+      ;; (format stream "VM ap: ~a sp: ~x(~x) stack-top(raw): ~a(~a)" ap sp (scheme-value-of sp)
+      ;;         (scheme-value-of (vm-car vm sp))
+      ;;         (vm-car vm sp))
+      )))
 
 (defun display-memory (vm mem addr &optional (stream t))
   (let ((arrow (loop :for p :in (list (sp-of vm)
@@ -428,6 +417,9 @@ Error if invalid type."
 
 ;; VM method
 
+(define-condition stop-vm-condition (condition)
+  ())
+
 (defgeneric dispatch (insn vm)
   (:documentation "Dispatch VM instruction."))
 
@@ -459,7 +451,11 @@ Error if invalid type."
   (:documentation "Fetch instruction and dispatch."))
 
 (defmethod next ((vm vm))
-  (dispatch (fetch-insn vm) vm))
+  ;;(dispatch (fetch-insn vm) vm)
+  t)
+
+;; (defmacro next (vm)
+;;   `(go :vm-loop))
 
 ;; (defmethod next ((vm vm))
 ;;   (let ((c (fetch-insn vm)))
