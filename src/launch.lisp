@@ -15,17 +15,39 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; run
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun run-vm (vm)
+  "run vm."
+  (handler-case 
+      (loop (dispatch (fetch-insn vm) vm))
+    (stop-vm-condition ()
+      (progn
+        (format *debug-io* ";; handle stop-vm-condition~%")
+        vm))))
+
+;; (defun run-code (code)
+;;   "Run compiled-code in new VM."
+;;   (let ((vm (make-vm code)))
+;;     (next vm)
+;;     vm))
+
 (defun run-code (code)
   "Run compiled-code in new VM."
   (let ((vm (make-vm code)))
-    (next vm)
-    vm))
+    (run-vm vm)))
 
 (defun run-time (exp)
+  "Compile s-expression EXP and run."
   (let ((code (compile-exp exp)))
     (let ((vm (make-vm code)))
-      (time
-       (next vm)))))
+      (run-vm vm))))
+
+;; (defun run-time (exp)
+;;   "Compile s-expression EXP and run."
+;;   (let ((code (compile-exp exp)))
+;;     (let ((vm (make-vm code)))
+;;       (time
+;;        (next vm)))))
 
 ;; (defun run-prof (exp)
 ;;   (let ((code (compile-exp exp)))
@@ -36,6 +58,7 @@
 (defun run (exp)
   "Compile s-expression and run."
   (let ((code (compile-exp exp)))
+    (format t ";; exp: ~a~%code: ~a~%" exp code)
     (run-code code)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
