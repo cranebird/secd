@@ -7,7 +7,7 @@
 ;; (http://www.cs.ualberta.ca/~you/courses/325/Mynotes/Fun/SECD-slides.html)
 ;; And LispMe.
 
-(in-package :secd)
+(in-package :secd.vm)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (set-scm-macro-character)
@@ -333,12 +333,23 @@ Error if invalid type."
   "Make vm instance and initialize."
   (let ((vm (make-instance 'vm)))
     (with-accessors ((ap ap-of) (sp set-sp) (env set-env) (dump set-dump)) vm
-      (write-word (memory-of vm) 0 empty)
-      (incf ap (* wordsize 2))
-      (setf sp 1 ;; TODO pointer to empty ; (let ((x 0)) (setf (ldb (byte 3 0) x) tag-pair) x) == 1
-            env 1
-            dump 1))
+      ;;(write-word (memory-of vm) 0 empty)
+      ;;(incf ap (* wordsize 2))
+      (setf sp empty ;; TODO pointer to empty ; (let ((x 0)) (setf (ldb (byte 3 0) x) tag-pair) x) == 1
+            env empty
+            dump empty))
     vm))
+
+;; (defun make-vm0 ()
+;;   "Make vm instance and initialize."
+;;   (let ((vm (make-instance 'vm)))
+;;     (with-accessors ((ap ap-of) (sp set-sp) (env set-env) (dump set-dump)) vm
+;;       (write-word (memory-of vm) 0 empty)
+;;       (incf ap (* wordsize 2))
+;;       (setf sp 1 ;; TODO pointer to empty ; (let ((x 0)) (setf (ldb (byte 3 0) x) tag-pair) x) == 1
+;;             env 1
+;;             dump 1))
+;;     vm))
 
 (defun make-vm (code)
   "Make vm instance."
@@ -457,16 +468,8 @@ Error if invalid type."
 ;;         (format t ";; end of code? ~a~%" vm))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; SECD operation
+;; Utility
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;; (defmacro vm-stack-pop (vm)
-;;   (let ((top (gensym))
-;;         (sp (gensym)))
-;;     `(with-accessors ((,sp sp-of)) ,vm
-;;        (let ((,top (vm-car ,vm ,sp)))
-;;          (setf ,sp (vm-cdr ,vm ,sp))
-;;          ,top))))
 
 (defgeneric vm-stack-top (vm)
   (:documentation "car of stack."))
