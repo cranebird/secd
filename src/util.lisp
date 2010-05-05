@@ -1,6 +1,6 @@
 ;;; Utility
 ;; from "Practical Common Lisp"
-(in-package :secd)
+(in-package :secd.util)
 
 (defun set-scm-macro-character ()
   "set #f and #t"
@@ -14,3 +14,4 @@
                                     :scheme-f)))
 
 (defun as-keyword (sym) (intern (string sym) :keyword))
+
