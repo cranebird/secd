@@ -20,7 +20,7 @@
 ;; Memory and tagged pointer
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defparameter *memory-size* 1000) ;; SCM_VM_STACK_SIZE in words = 10000
+(defparameter *memory-size* 10000) ;; SCM_VM_STACK_SIZE in words = 10000
 
 (defun make-memory (size)
   "make memory array"
@@ -304,13 +304,25 @@ Error if invalid type."
     (setf (ldb (byte 3 0) y) tag-pair)
     y))
 
+(define-condition gc-condition (condition)
+  ())
+
+(define-condition allocation-fail-error (error)
+  ())
 
 (defmethod vm-cons ((vm vm) a b)
   (with-accessors ((ap ap-of)) vm
     (let ((ap0 ap))
+      (let ((len (length (memory-of vm))))
+        (when (>= (+ ap (* 2 wordsize)) len)
+          (signal 'gc-condition) ;; cause gc
+          (format t ";; after gc condition signaled~%")
+          (when (>= (+ ap (* 2 wordsize)) len)
+            (error 'allocation-fail-error))))
       (write-word (memory-of vm) ap a)
       (write-word (memory-of vm) (+ ap wordsize) b)
       (incf ap (* 2 wordsize))
+
       (setf (ldb (byte 3 0) ap0) tag-pair)
       ap0)))
 
@@ -333,7 +345,7 @@ Error if invalid type."
 (defun make-vm0 ()
   "Make vm instance and initialize."
   (let ((vm (make-instance 'vm)))
-    (with-accessors ((ap ap-of) (sp set-sp) (env set-env) (dump set-dump)) vm
+    (with-accessors ((sp set-sp) (env set-env) (dump set-dump)) vm
       (setf sp empty ;; TODO pointer to empty ; (let ((x 0)) (setf (ldb (byte 3 0) x) tag-pair) x) == 1
             env empty
             dump empty))
