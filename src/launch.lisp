@@ -25,12 +25,6 @@
         (format *debug-io* ";; handle stop-vm-condition~%")
         vm))))
 
-;; (defun run-code (code)
-;;   "Run compiled-code in new VM."
-;;   (let ((vm (make-vm code)))
-;;     (next vm)
-;;     vm))
-
 (defun run-code (code)
   "Run compiled-code in new VM."
   (let ((vm (make-vm code)))
@@ -41,19 +35,6 @@
   (let ((code (compile-exp exp)))
     (let ((vm (make-vm code)))
       (run-vm vm))))
-
-;; (defun run-time (exp)
-;;   "Compile s-expression EXP and run."
-;;   (let ((code (compile-exp exp)))
-;;     (let ((vm (make-vm code)))
-;;       (time
-;;        (next vm)))))
-
-;; (defun run-prof (exp)
-;;   (let ((code (compile-exp exp)))
-;;     (let ((vm (make-vm code)))
-;;       (with-prof
-;;        (describe (next vm))))))
 
 (defun run (exp)
   "Compile s-expression and run."
