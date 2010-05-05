@@ -7,7 +7,7 @@
 ;; (http://www.cs.ualberta.ca/~you/courses/325/Mynotes/Fun/SECD-slides.html)
 ;; And LispMe.
 
-(in-package :secd)
+(in-package :secd.compile)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (set-scm-macro-character))
@@ -55,6 +55,9 @@
           (destructuring-bind (a b) rest
             `(,@(compile-pass1 b env) ,@(compile-pass1 a env)
                 ,(as-keyword op))))
+         ((member op '(car cdr))
+          (destructuring-bind (a) rest
+            `(,@(compile-pass1 a env) ,(as-keyword op))))
          ((eql op 'if)
           (destructuring-bind (e1 e2 e3) rest
             `(,@(compile-pass1 e1 env) :SEL
@@ -85,7 +88,7 @@
                  :append (append (compile-pass1 en env) '(:CONS)))
             ,@(compile-pass1 op env) :AP)))))
     (t
-     (error "compile-pass1 unknown: ~a" exp))))
+     (error "compile-pass1 unknown expression: ~a" exp))))
 
 (defun make-code-array ()
   "make array for code vector."
@@ -103,7 +106,7 @@
          :for x = (aref vec i)
          :do (setf (aref vec i) (or (gethash x label-table) x)))
       (ecase (car program)
-        ((:NIL :AP :RTN :CONS :RAP :DUM :+ :- :* :> :< := :JOIN) ; no label
+        ((:NIL :AP :RTN :CONS :CAR :CDR :RAP :DUM :+ :- :* :> :< := :JOIN) ; no label
          (destructuring-bind (op . rest) program
            (append-code op vec)
            (compile-pass2 rest vec label-table)))
@@ -157,5 +160,3 @@
       (append-code :STOP vec)
       (make-array (length vec)
                   :initial-contents vec))))
-
-
