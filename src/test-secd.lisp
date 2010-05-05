@@ -15,12 +15,13 @@
 ;; Tests
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defun test-doc ()
+  "check documentation"
   (let ((docs
-         (loop for sym being the present-symbols in (find-package :secd)
-            if (and (fboundp sym) (documentation sym 'function))
-            collect (cons (string sym) (documentation sym 'function)))))
-    (loop for (sym . doc) in (sort docs #'string-lessp :key #'car)
-       do (format t "~a : ~a~%" sym doc))))
+         (loop :for sym :being :the :present-symbols :in (find-package :secd)
+            :if (and (fboundp sym) (documentation sym 'function))
+            :collect (cons (string sym) (documentation sym 'function)))))
+    (loop :for (sym . doc) :in (sort docs #'string-lessp :key #'car)
+       :do (format t "~24,,,a : ~a~%" sym doc))))
 
 (deftest test-lookup ()
   (check
@@ -107,16 +108,16 @@
 
 (deftest test-convert ()
   (check
-    (eql (convert-to-scheme-value :bool-t '#b111) '#t)
-    (= (convert-to-scheme-value :fixnum 0) #b00)
-    (= (convert-to-scheme-value :fixnum #b1100) 3)
-    (= (convert-to-scheme-value :fixnum #b10100) 5)
-    (= (convert-to-scheme-value :fixnum #b00000000000000000000000000000000) 0)
-    (= (convert-to-scheme-value :fixnum #b11111111111111111111111111111100) -1)))
+    (eql (convert-scheme-obj :bool-t '#b111) '#t)
+    (= (convert-scheme-obj :fixnum 0) #b00)
+    (= (convert-scheme-obj :fixnum #b1100) 3)
+    (= (convert-scheme-obj :fixnum #b10100) 5)
+    (= (convert-scheme-obj :fixnum #b00000000000000000000000000000000) 0)
+    (= (convert-scheme-obj :fixnum #b11111111111111111111111111111100) -1)))
 
 (deftest test-fixnum ()
   (labels ((fn (x)
-             (convert-to-scheme-value :fixnum (immediate-rep x))))
+             (convert-scheme-obj :fixnum (immediate-rep x))))
     (check
       (= 0 (fn 0))
       (= 1 (fn 1))
@@ -138,14 +139,14 @@
 (deftest test-nil-1 ()
   (let ((vm (run-code #(:NIL :STOP))))
     (check
-      (eql () (scheme-value-of (vm-car vm (sp-of vm)))))))
+      (eql () (value-of (vm-car vm (sp-of vm)))))))
 
 ;; test inst :NIL
 (deftest test-nil-2 ()
   (let ((vm (run-code #(:NIL :NIL :STOP))))
     (check
-      (eql () (scheme-value-of (vm-car vm (sp-of vm))))
-      (eql () (scheme-value-of (vm-car vm (vm-cdr vm (sp-of vm))))))))
+      (eql () (value-of (vm-car vm (sp-of vm))))
+      (eql () (value-of (vm-car vm (vm-cdr vm (sp-of vm))))))))
 
 (deftest test-nil ()
   (combine-results
@@ -159,13 +160,13 @@
 (deftest test-ldc-1 ()
   (let ((vm (run-code #(:LDC 3 :STOP))))
     (check
-      (eql 3 (scheme-value-of (vm-car vm (sp-of vm)))))))
+      (eql 3 (value-of (vm-car vm (sp-of vm)))))))
 
 (deftest test-ldc-2 ()
   (let ((vm (run-code #(:LDC 7 :LDC 0 :STOP))))
     (check
-      (eql 0 (scheme-value-of (vm-car vm (sp-of vm))))
-      (eql 7 (scheme-value-of (vm-car vm (vm-cdr vm (sp-of vm))))))))
+      (eql 0 (value-of (vm-car vm (sp-of vm))))
+      (eql 7 (value-of (vm-car vm (vm-cdr vm (sp-of vm))))))))
 
 (deftest test-ldc-3 ()
   (let ((vm (run-code #(:LDC 4 :LDC 0 :LDC 12 :STOP))))
@@ -174,9 +175,9 @@
            (the-cadr (vm-car vm the-cdr))
            (the-caddr (vm-car vm (vm-cdr vm the-cdr))))
       (check
-        (eql 12 (scheme-value-of the-car))
-        (eql 0 (scheme-value-of the-cadr))
-        (eql 4 (scheme-value-of the-caddr))))))
+        (eql 12 (value-of the-car))
+        (eql 0 (value-of the-cadr))
+        (eql 4 (value-of the-caddr))))))
 
 (deftest test-ldc ()
   (combine-results
@@ -191,29 +192,29 @@
 (deftest test-binary-insn-1 ()
   (let ((vm (run-code #(:LDC 3 :LDC 7 :+ :STOP))))
     (check
-      (eql 10 (scheme-value-of (vm-car vm (sp-of vm)))))))
+      (eql 10 (value-of (vm-car vm (sp-of vm)))))))
 
 (deftest test-binary-insn-2 ()
   ;; (- 3 5)
   (let ((vm (run-code #(:LDC 5 :LDC 3 :- :STOP))))
     (check
-      (eql -2 (scheme-value-of (vm-car vm (sp-of vm)))))))
+      (eql -2 (value-of (vm-car vm (sp-of vm)))))))
 
 (deftest test-binary-insn-3 ()
   ;; (+ (- 3 5) 7)
   (let ((vm (run-code #(:LDC 5 :LDC 3 :- :LDC 7 :+ :STOP))))
     (check
-      (eql 5 (scheme-value-of (vm-car vm (sp-of vm)))))))
+      (eql 5 (value-of (vm-car vm (sp-of vm)))))))
 
 (deftest test-binary-insn-4 ()
   (let ((vm (run-code #(:LDC 3 :LDC 7 :> :STOP))))
     (check
-      (eql :scheme-t (scheme-value-of (vm-car vm (sp-of vm)))))))
+      (eql :scheme-t (value-of (vm-car vm (sp-of vm)))))))
 
 (deftest test-binary-insn-5 ()
   (let ((vm (run-code #(:LDC 3 :LDC 7 :< :STOP))))
     (check
-      (eql :scheme-f (scheme-value-of (vm-car vm (sp-of vm)))))))
+      (eql :scheme-f (value-of (vm-car vm (sp-of vm)))))))
 
 (deftest test-binary-insn ()
   (combine-results
@@ -229,29 +230,35 @@
 (deftest test-sel-1 ()
   (let ((vm (run '(if #t 8 11))))
     (check
-      (eql 8 (scheme-value-of (vm-car vm (sp-of vm)))))))
+      (eql 8 (value-of (vm-car vm (sp-of vm)))))))
 
 (deftest test-sel-2 ()
   (let ((vm (run '(if #f 8 11))))
     (check
-      (eql 11 (scheme-value-of (vm-car vm (sp-of vm)))))))
+      (eql 11 (value-of (vm-car vm (sp-of vm)))))))
 
 (deftest test-sel-3 ()
   (let ((vm (run '(if (> 999 0) 8 11))))
     (check
-      (eql 8 (scheme-value-of (vm-car vm (sp-of vm)))))))
+      (eql 8 (value-of (vm-car vm (sp-of vm)))))))
 
 (deftest test-sel-4 ()
   (let ((vm (run '(if (< 999 0) 8 11))))
     (check
-      (eql 11 (scheme-value-of (vm-car vm (sp-of vm)))))))
+      (eql 11 (value-of (vm-car vm (sp-of vm)))))))
+
+(deftest test-sel-5 ()
+  (let ((vm (run '(if (= 999 0) 8 11))))
+    (check
+      (eql 11 (value-of (vm-car vm (sp-of vm)))))))
 
 (deftest test-sel ()
   (combine-results
     (test-sel-1)
     (test-sel-2)
     (test-sel-3)
-    (test-sel-4)))
+    (test-sel-4)
+    (test-sel-5)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; LDF
@@ -260,74 +267,79 @@
 ;; => #(:LDF 3 6 :LDC 12 :RTN :STOP)
 
 (deftest test-ldf-1 ()
-  (let ((vm (run  '((lambda () (+ 3 4))))))
+  (let ((vm (run '((lambda () (+ 3 4))))))
     (check
-      (= 7 (scheme-value-of (vm-stack-top vm))))))
+      (= 7 (value-of (vm-stack-top vm))))))
 
 (deftest test-ldf-2 ()
-  (let ((vm (run  '((lambda () 0)))))
+  (let ((vm (run '((lambda () 0)))))
     (check
-      (= 0 (scheme-value-of (vm-stack-top vm))))))
+      (= 0 (value-of (vm-stack-top vm))))))
 
 (deftest test-ldf-3 ()
-  (let ((vm (run  '((lambda (x) 5) 10))))
+  (let ((vm (run '((lambda (x) 5) 10))))
     (check
-      (= 5 (scheme-value-of (vm-stack-top vm))))))
+      (= 5 (value-of (vm-stack-top vm))))))
 
 (deftest test-ldf-4 ()
-  (let ((vm (run  '((lambda (x) (+ 3 4)) 10))))
+  (let ((vm (run '((lambda (x) (+ 3 4)) 10))))
     (check
-      (= 7 (scheme-value-of (vm-stack-top vm))))))
+      (= 7 (value-of (vm-stack-top vm))))))
 
 (deftest test-ldf-5 ()
-  (let ((vm (run  '((lambda (x y) (+ 3 4)) 10 20))))
+  (let ((vm (run '((lambda (x y) (+ 3 4)) 10 20))))
     (check
-      (= 7 (scheme-value-of (vm-stack-top vm))))))
+      (= 7 (value-of (vm-stack-top vm))))))
 
 (deftest test-ldf-6 ()
-  (let ((vm (run  '((lambda (x y z) (* 3 4)) 10 (+ 20 5) 30))))
+  (let ((vm (run '((lambda (x y z) (* 3 4)) 10 (+ 20 5) 30))))
     (check
-      (= 12 (scheme-value-of (vm-stack-top vm))))))
+      (= 12 (value-of (vm-stack-top vm))))))
 
-(deftest test-ldf-7 ()
-  (let ((vm (run  '((lambda (x) x) 13))))
+(deftest test-ldf-7 () ;; use arg
+  (let ((vm (run '((lambda (x) x) 13))))
     (check
-      (= 13 (scheme-value-of (vm-stack-top vm))))))
+      (= 13 (value-of (vm-stack-top vm))))))
 
 (deftest test-ldf-8 ()
   (let ((vm (run  '((lambda (x) (* 2 x)) 13))))
     (check
-      (= 26 (scheme-value-of (vm-stack-top vm))))))
+      (= 26 (value-of (vm-stack-top vm))))))
 
 (deftest test-ldf-9 ()
   (let ((vm (run  '((lambda (x y) 20) 7 13))))
     (check
-      (= 20 (scheme-value-of (vm-stack-top vm))))))
+      (= 20 (value-of (vm-stack-top vm))))))
 
 (deftest test-ldf-10 ()
   (let ((vm (run  '((lambda (x y) x) 7 13))))
     (check
-      (= 7 (scheme-value-of (vm-stack-top vm))))))
+      (= 7 (value-of (vm-stack-top vm))))))
 
-(deftest test-ldf-11 ()
+(deftest test-ldf-11 () ;;
   (let ((vm (run  '((lambda (x y) y) 7 13))))
     (check
-      (= 13 (scheme-value-of (vm-stack-top vm))))))
+      (eql 13 (value-of (vm-stack-top vm))))))
 
 (deftest test-ldf-12 ()
   (let ((vm (run  '((lambda (x y) (+ x y)) 7 13))))
     (check
-      (= 20 (scheme-value-of (vm-stack-top vm))))))
+      (= 20 (value-of (vm-stack-top vm))))))
 
 (deftest test-ldf-13 ()
   (let ((vm (run  '((lambda (x y) (- x y)) 5 18))))
     (check
-      (= -13 (scheme-value-of (vm-stack-top vm))))))
+      (= -13 (value-of (vm-stack-top vm))))))
 
 (deftest test-ldf-14 ()
   (let ((vm (run  '((lambda (x y) (* 2 (+ x y))) 3 5))))
     (check
-      (= 16 (scheme-value-of (vm-stack-top vm))))))
+      (= 16 (value-of (vm-stack-top vm))))))
+
+(deftest test-ldf-15 ()
+  (let ((vm (run  '((lambda (x y) (= x y)) 3 5))))
+    (check
+      (eql #f (value-of (vm-stack-top vm))))))
 
 (deftest test-ldf ()
   (combine-results
@@ -345,6 +357,7 @@
     (test-ldf-12)
     (test-ldf-13)
     (test-ldf-14)
+    (test-ldf-15)
     ))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -361,13 +374,17 @@
     (test-sel)
     (test-ldf)))
 
+
+
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (deftest test-run-base-1 ()
   (labels ((cmp (expect exp)
-             (equal expect (scheme-value-of (vm-stack-top (run exp))))))
+             (equal expect (value-of (vm-stack-top (run exp))))))
     (check
       (cmp 3 3)
       (cmp 3 '(+ 1 2))
@@ -376,14 +393,14 @@
 
 (deftest test-run-base-2 ()
   (labels ((cmp (expect exp)
-             (equal expect (scheme-value-of (vm-stack-top (run exp))))))
+             (equal expect (value-of (vm-stack-top (run exp))))))
     (check
       (cmp -1 '((lambda (x y) (- x y)) 2 3))
       (cmp 4 '((lambda (z) ((lambda (x y) (+ (- x y) z)) 3 5)) 6)))))
 
 (deftest test-run-let ()
   (labels ((cmp (expect exp)
-             (equal expect (scheme-value-of (vm-stack-top (run exp))))))
+             (equal expect (value-of (vm-stack-top (run exp))))))
     (check
       (cmp 12 '(let ((x 12)) x))
       (cmp 8 '(let ((x 3) (y 8)) y))
@@ -394,14 +411,14 @@
 
 (deftest test-run-lambda ()
   (labels ((cmp (expect exp)
-             (equal expect (scheme-value-of (vm-stack-top (run exp))))))
+             (equal expect (value-of (vm-stack-top (run exp))))))
     (check
       (cmp 20 '(let ((fn (lambda (x) (* 2 x))))
                 (fn 10))))))
 
 (deftest test-run-lambda-2 ()
   (labels ((cmp (expect exp)
-             (equal expect (scheme-value-of (vm-stack-top (run exp))))))
+             (equal expect (value-of (vm-stack-top (run exp))))))
     (check
       (cmp 12 '(let ((fn (lambda (x) (* 2 x))))
                 (fn (fn 3))))
@@ -422,7 +439,7 @@
 
 (deftest test-run-lambda-3 ()
   (labels ((cmp (expect exp)
-             (equal expect (scheme-value-of (vm-stack-top (run exp))))))
+             (equal expect (value-of (vm-stack-top (run exp))))))
     (check
       (cmp 8 '(let ((n 2))
                 (let ((fn (lambda (x) (* n x))))
@@ -433,7 +450,7 @@
 
 (deftest test-run-lambda-4 ()
   (labels ((cmp (expect exp)
-             (equal expect (scheme-value-of (vm-stack-top (run exp))))))
+             (equal expect (value-of (vm-stack-top (run exp))))))
     (check
       (cmp 12 '(let ((fn (lambda (x) (* 2 x))))
                 (fn (fn 3))))
@@ -450,7 +467,7 @@
 ;; 20100323 failed!
 (deftest test-run-lambda-5 () ;; Y
   (labels ((cmp (expect exp)
-             (equal expect (scheme-value-of (vm-stack-top (run exp))))))
+             (equal expect (value-of (vm-stack-top (run exp))))))
     (check
       (cmp 3628800 '(((lambda (self)
                         (lambda (n)
@@ -517,7 +534,7 @@
 ;; not yet 20100323
 (deftest test-run-letrec ()
   (labels ((cmp (expect exp)
-             (equal expect (scheme-value-of (vm-stack-top (run exp))))))
+             (equal expect (value-of (vm-stack-top (run exp))))))
     (check
       (cmp 3 '(letrec ((f 3))
                f))
