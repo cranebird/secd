@@ -1,23 +1,18 @@
 (asdf:operate 'asdf:load-op :test-framework)
 
-(defpackage :secd
-  (:use :common-lisp :asdf :com.gigamonkeys.test))
-
-
-(in-package :secd)
-
 (asdf:defsystem :secd
-  :description "SECD Machine"
-  :version "0.0.1"
+  :description "secd: SECD Machine in Common Lisp."
+  :version "0.0.4"
   :author "cranebird <quasi@kc4.so-net.ne.jp>"
   :depends-on (:test-framework)
-  :components ((:file "util")
-               (:file "compile" :depends-on ("util"))
-               (:file "vm" :depends-on ("util"))
-               (:file "launch" :depends-on ("util" "compile" "vm"))
-               (:file "test-secd" :depends-on ("util" "compile" "vm"))
-               ;;(:file "tagged-pointer" :depends-on ("package"))
+  :components ((:file "package")
+               (:file "util" :depends-on ("package"))
+               (:file "compile" :depends-on ("package" "util"))
+               (:file "vm" :depends-on ("package" "util"))
+               (:file "insn" :depends-on ("package" "vm" "util"))
+               (:file "launch" :depends-on ("package" "util" "compile" "vm"))
+               (:file "test-secd" :depends-on ("package" "util" "compile" "vm"))
+               (:file "graph" :depends-on ("package" "vm"))
                ))
-
 
 (asdf:load-system :secd)
