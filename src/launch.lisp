@@ -18,11 +18,24 @@
 
 (defun run-vm (vm)
   "run vm."
-  (handler-case 
-      (loop (dispatch (fetch-insn vm) vm))
+  (handler-case
+      (handler-bind
+          ((gc-condition
+            #'(lambda (c)
+                (declare (ignore c))
+                (format *debug-io* ";; start gc...~%")
+                (format *debug-io* ";; start gc...done~%")
+                (let ((restart (find-restart 'gc-restart)))
+                  (when restart
+                    (invoke-restart 'gc-restart))))))
+        (loop (dispatch (fetch-insn vm) vm)))
     (stop-vm-condition ()
       (progn
-        (format *debug-io* ";; handle stop-vm-condition~%")
+        (format *debug-io* ";; stop-vm~%")
+        vm))
+    (allocation-fail-error ()
+      (progn
+        (format *debug-io* ";; caught allocation-fail-error~%")
         vm))))
 
 (defun run-code (code)
