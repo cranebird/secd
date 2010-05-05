@@ -24,7 +24,7 @@
 
 (defun make-memory (size)
   "make memory array"
-  (make-array size :element-type '(unsigned-byte 8)))
+  (make-array size :element-type '(signed-byte 32)))
 
 (defun address (mem idx)
   "low level accesser to the memory MEM"
@@ -236,20 +236,26 @@ Error if invalid type."
 (defgeneric read-word (mem addr0)
   (:documentation "read word on memory."))
 
+;; (defmethod read-word (mem addr0)
+;;   (loop :with word = 0
+;;      :for addr :from addr0 :below (+ addr0 wordsize)
+;;      :for pos :from 0 :by 8
+;;      :do (setf (ldb (byte 8 pos) word) (address mem addr))
+;;      :finally (return word)))
+
 (defmethod read-word (mem addr0)
-  (loop :with word = 0
-     :for addr :from addr0 :below (+ addr0 wordsize)
-     :for pos :from 0 :by 8
-     :do (setf (ldb (byte 8 pos) word) (address mem addr))
-     :finally (return word)))
+  (address mem addr0))
 
 (defgeneric write-word (mem addr0 word)
   (:documentation "write word on memory."))
 
+;; (defmethod write-word (mem addr0 word)
+;;  (loop :for addr :from addr0 :below (+ addr0 wordsize)
+;;     :for pos :from 0 :by 8
+;;     :do (setf (address mem addr) (ldb (byte 8 pos) word))))
+
 (defmethod write-word (mem addr0 word)
-  (loop :for addr :from addr0 :below (+ addr0 wordsize)
-     :for pos :from 0 :by 8
-     :do (setf (address mem addr) (ldb (byte 8 pos) word))))
+  (setf (address mem addr0) word))
 
 (defgeneric vm-cons (vm a b)
   (:documentation "make new cell on VM."))
@@ -289,15 +295,6 @@ Error if invalid type."
       (setq to-ap (copying-iter vm (+ wordsize (value-of val)) to-ap)))
 
     to-ap))
-
-;      (when (> ap (* 0.2 (length (memory-of vm))))
-;; (when t
-;;   (format t "GC!~%")
-;;   ;; (copying vm)
-;;   ;; (swap-space vm)
-;;   (describe vm)
-;;   ;(graphviz-vm vm)
-;;   )
 
 (defun add-tag-pair (x)
   (let ((y x))
