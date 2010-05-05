@@ -35,6 +35,8 @@
            :fetch-insn
            :stop-vm-condition
            :unknown-immediate-rep-error
+           :allocation-fail-error
+           :gc-condition
            ))
 
 (defpackage :secd
