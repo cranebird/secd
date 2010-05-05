@@ -13,10 +13,12 @@
   (set-scm-macro-character)
   ;;(defparameter *debug* t)
   (defparameter *debug* nil)
-  (defparameter *profile* t) 
+  (defparameter *profile* nil)
   )
 
-;; tagged pointer
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Memory and tagged pointer
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defparameter *memory-size* 1000) ;; SCM_VM_STACK_SIZE in words = 10000
 
@@ -40,7 +42,6 @@
 ;;(defconstant bool-mask #b10111111)
 
 (defconstant wordsize 4)
-
 (defconstant tag-fixnum #b00)
 (defconstant tag-pair #b001)
 (defconstant tag-vector #b010)
@@ -66,15 +67,18 @@
 ;; 11111100 = -1
 ;; 11110100 = -3
 
-(defun as-32b (x &optional stream)
-  (format stream "~32,'0,,b" x))
+;; CL value === immediate-rep ==> Scheme value
+;; CL value <== convert-scheme-obj == Scheme value
 
-(defun convert-to-scheme-value (type val)
-  "convert word to scheme value."
+(define-condition unknown-immediate-rep-error (type-error)
+  ((text :initarg :text :reader text)))
+
+(defun convert-scheme-obj (type obj)
+  "convert scheme object OBJ to Common Lisp value."
   (ecase type
     ((:fixnum)
-     (if (logbitp 31 val) ;; minus value
-         (loop :with z = (1+ (lognot val))
+     (if (logbitp 31 obj) ;; minus value
+         (loop :with z = (1+ (lognot obj))
             :for i :from 2 :to 29
             :for x :from 0
             :sum (if (logbitp i z)
@@ -83,28 +87,28 @@
             :finally
             (return (- tot)))
          (let ((u 0))
-           (setf (ldb (byte 29 0) u) (ldb (byte 29 2) val))
+           (setf (ldb (byte 29 0) u) (ldb (byte 29 2) obj))
            u)))
     ((:bool-f) #f)
     ((:bool-t) #t)
     ((:empty) ())
     ((:pair :vector)
-     (let ((v val))
+     (let ((v obj))
        (setf (ldb (byte 3 0) v) #b000)
        v))))
 
-(defun scheme-value-of (val)
-  "return value of scheme object OBJ and type. val is tagged value
+(defun value-of (obj)
+  "return value of scheme object OBJ and type. OBJ is tagged.
 Error if invalid type."
-  (let ((type (scheme-type-of val)))
-    (values (convert-to-scheme-value type val) type)))
+  (let ((type (scheme-type-of obj)))
+    (values (convert-scheme-obj type obj) type)))
 
 (defun immediate-rep (x)
   "return immediate representaion of X."
   (cond
     ((and (typep x 'fixnum) (< x (expt 2 29)))
      (let ((u 0)) ;; little endian
-       (setf (ldb (byte 2 0) u) #b00)
+       (setf (ldb (byte 2 0) u) tag-fixnum)
        (setf (ldb (byte 29 2) u) x)
        (when (< x 0) ;; minus
          (setf (ldb (byte 1 31) u) 1))
@@ -112,7 +116,7 @@ Error if invalid type."
     ((null x) empty)
     ((eql x '#t) bool-t)
     ((eql x '#f) bool-f)
-    (t (error "Unknown immediate-rep: ~a" x))))
+    (t (error 'unknown-immediate-rep-error :text x))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; VM
@@ -256,18 +260,18 @@ Error if invalid type."
   (let ((to-ap (* 2 wordsize)))
     ;; NOT WORK TODO; 20100503
     (let ((newsp to-ap))
-      (setq to-ap (copying-iter vm (scheme-value-of (sp-of vm)) to-ap)) ;; copy car
-      (setq to-ap (copying-iter vm (+ wordsize (scheme-value-of (sp-of vm))) to-ap)) ;; copy cdr
+      (setq to-ap (copying-iter vm (value-of (sp-of vm)) to-ap)) ;; copy car
+      (setq to-ap (copying-iter vm (+ wordsize (value-of (sp-of vm))) to-ap)) ;; copy cdr
       (setf (sp-of vm) (add-tag-pair newsp)))
     
     (let ((newenv to-ap))
-      (setq to-ap (copying-iter vm (scheme-value-of (env-of vm)) to-ap))
-      (setq to-ap (copying-iter vm (+ wordsize (scheme-value-of (env-of vm))) to-ap))
+      (setq to-ap (copying-iter vm (value-of (env-of vm)) to-ap))
+      (setq to-ap (copying-iter vm (+ wordsize (value-of (env-of vm))) to-ap))
       (setf (env-of vm) (add-tag-pair newenv)))
 
     (let ((newdump to-ap))
-      (setq to-ap (copying-iter vm (scheme-value-of (dump-of vm)) to-ap))
-      (setq to-ap (copying-iter vm (+ wordsize (scheme-value-of (dump-of vm))) to-ap))
+      (setq to-ap (copying-iter vm (value-of (dump-of vm)) to-ap))
+      (setq to-ap (copying-iter vm (+ wordsize (value-of (dump-of vm))) to-ap))
       (setf (dump-of vm) (add-tag-pair newdump)))
     to-ap
     )
@@ -281,8 +285,8 @@ Error if invalid type."
 
     (when (eql (scheme-type-of val) :pair)
       ;(format t ";; recursive copying addr=~a:~%" addr)
-      (setq to-ap (copying-iter vm (scheme-value-of val) to-ap))
-      (setq to-ap (copying-iter vm (+ wordsize (scheme-value-of val)) to-ap)))
+      (setq to-ap (copying-iter vm (value-of val) to-ap))
+      (setq to-ap (copying-iter vm (+ wordsize (value-of val)) to-ap)))
 
     to-ap))
 
@@ -314,14 +318,14 @@ Error if invalid type."
   (:documentation "car on VM."))
 
 (defmethod vm-car ((vm vm) word)
-  (let ((addr (scheme-value-of word)))
+  (let ((addr (value-of word)))
     (read-word (memory-of vm) addr)))
 
 (defgeneric vm-cdr (vm addr)
   (:documentation "car on VM."))
 
 (defmethod vm-cdr ((vm vm) word)
-  (let ((addr (scheme-value-of word)))
+  (let ((addr (value-of word)))
     (read-word (memory-of vm) (+ addr wordsize))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -330,8 +334,6 @@ Error if invalid type."
   "Make vm instance and initialize."
   (let ((vm (make-instance 'vm)))
     (with-accessors ((ap ap-of) (sp set-sp) (env set-env) (dump set-dump)) vm
-      ;;(write-word (memory-of vm) 0 empty)
-      ;;(incf ap (* wordsize 2))
       (setf sp empty ;; TODO pointer to empty ; (let ((x 0)) (setf (ldb (byte 3 0) x) tag-pair) x) == 1
             env empty
             dump empty))
@@ -347,10 +349,9 @@ Error if invalid type."
   (print-unreadable-object (vm stream)
     (with-accessors ((env get-env) (code get-code) (dump get-dump)
                      (sp get-sp) (ap get-ap)) vm
-      (format stream "VM ap: ~a sp: ~x(~x) " ap sp (scheme-value-of sp))
-
-      ;; (format stream "VM ap: ~a sp: ~x(~x) stack-top(raw): ~a(~a)" ap sp (scheme-value-of sp)
-      ;;         (scheme-value-of (vm-car vm sp))
+      (format stream "VM ap: ~a sp: ~x(~x) " ap sp (value-of sp))
+      ;; (format stream "VM ap: ~a sp: ~x(~x) stack-top(raw): ~a(~a)" ap sp (value-of sp)
+      ;;         (value-of (vm-car vm sp))
       ;;         (vm-car vm sp))
       )))
 
@@ -359,11 +360,11 @@ Error if invalid type."
                                       (env-of vm)
                                       (dump-of vm))
                   :for s :in '("sp" "env" "dump")
-                  if (eql addr (scheme-value-of p))
+                  if (eql addr (value-of p))
                   collect s)))
     (let ((word (read-word mem addr)))
       (format stream "~32,'0,,b:(~4,,,a) ~8,,,@a | ~a ~a~%"
-              addr addr word (scheme-value-of word)
+              addr addr word (value-of word)
               (if arrow
                   (format nil "<-~{~a~^ ~}" arrow)
                   "")))))
@@ -417,6 +418,7 @@ Error if invalid type."
 
 ;; VM method
 
+;; Conditions
 (define-condition stop-vm-condition (condition)
   ())
 
@@ -446,22 +448,6 @@ Error if invalid type."
 (defmethod fetch-operand ((vm vm))
   (with-accessors ((pc get-pc) (code get-code)) vm
     (code-ref code pc)))
-
-(defgeneric next (vm)
-  (:documentation "Fetch instruction and dispatch."))
-
-(defmethod next ((vm vm))
-  ;;(dispatch (fetch-insn vm) vm)
-  t)
-
-;; (defmacro next (vm)
-;;   `(go :vm-loop))
-
-;; (defmethod next ((vm vm))
-;;   (let ((c (fetch-insn vm)))
-;;     (if c
-;;         (dispatch c vm)
-;;         (format t ";; end of code? ~a~%" vm))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Utility
