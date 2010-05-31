@@ -1,13 +1,18 @@
 (defpackage :secd.util
-  (:use :common-lisp)
-  (:export :set-scm-macro-character :as-keyword))
+  (:use :common-lisp :cl-match)
+  (:export :set-scm-macro-character :as-keyword :with-gensyms
+           :mkstr :symb :group :flatten))
 
 (defpackage :secd.compile
   (:use :common-lisp :secd.util)
   (:export :extend-env :lookup :compile-exp
            :compile-pass1
-           :compile-pass2
-           ))
+           :compile-pass2))
+
+(defpackage :secd.interp
+  (:use :common-lisp :secd.util :secd.compile :cl-match)
+  )
+
 
 (defpackage :secd.vm
   (:use :common-lisp :secd.util)
@@ -37,6 +42,11 @@
            :unknown-immediate-rep-error
            :allocation-fail-error
            :gc-condition
+           :memory-of
+           :get-memory
+           :from-memory
+           :to-memory
+           :copying
            ))
 
 (defpackage :secd
