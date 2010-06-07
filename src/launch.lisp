@@ -24,6 +24,7 @@
             #'(lambda (c)
                 (declare (ignore c))
                 (format *debug-io* ";; start gc...~%")
+                ;;(copying vm)
                 (format *debug-io* ";; start gc...done~%")
                 (let ((restart (find-restart 'gc-restart)))
                   (when restart
@@ -47,7 +48,7 @@
   "Compile s-expression EXP and run."
   (let ((code (compile-exp exp)))
     (let ((vm (make-vm code)))
-      (run-vm vm))))
+      (time (run-vm vm)))))
 
 (defun run (exp)
   "Compile s-expression and run."

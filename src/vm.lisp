@@ -20,7 +20,9 @@
 ;; Memory and tagged pointer
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defparameter *memory-size* 10000) ;; SCM_VM_STACK_SIZE in words = 10000
+(defparameter *memory-size* 100000) ;; SCM_VM_STACK_SIZE in words = 10000
+
+(defconstant wordsize 4)
 
 (defun make-memory (size)
   "make memory array"
@@ -28,10 +30,10 @@
 
 (defun address (mem idx)
   "low level accesser to the memory MEM"
-  (aref mem idx))
+  (aref mem (/ idx wordsize)))
 
 (defsetf address (mem idx) (new)
-  `(setf (aref ,mem ,idx) ,new))
+  `(setf (aref ,mem (/ ,idx wordsize)) ,new))
 
 ;; (defconstant fxshift 2)
 
@@ -41,7 +43,7 @@
 
 ;;(defconstant bool-mask #b10111111)
 
-(defconstant wordsize 4)
+
 (defconstant tag-fixnum #b00)
 (defconstant tag-pair #b001)
 (defconstant tag-vector #b010)
@@ -58,7 +60,13 @@
          ((eql (ldb (byte 8 0) word) empty) :empty)
          ((eql (ldb (byte 7 0) word) bool-f) :bool-f)
          ((eql (ldb (byte 7 0) word) bool-t) :bool-t))))))
-       
+
+(defun scheme-pairp (word)
+  (eql (scheme-type-of word) :pair))
+
+(defun scheme-fixnump (word)
+  (eql (scheme-type-of word) :fixnum))
+
 ;; Fnnnnn## 
 ;; immediate-value
 ;; 00000000 = 0
@@ -118,6 +126,11 @@ Error if invalid type."
     ((eql x '#f) bool-f)
     (t (error 'unknown-immediate-rep-error :text x))))
 
+(defun tag-pair (x)
+  (let ((v x))
+    (setf (ldb (byte 3 0) v) tag-pair)
+    v))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; VM
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -150,6 +163,13 @@ Error if invalid type."
     :initform 0
     :type fixnum
     :documentation "allocation pointer")
+   (to-ap
+    :accessor to-ap-of
+    :reader get-to-ap
+    :writer (setf set-to-ap)
+    :initform 0
+    :type fixnum
+    :documentation "allocation pointer(to space)")
    (sp
     :accessor sp-of
     :reader get-sp
@@ -236,23 +256,11 @@ Error if invalid type."
 (defgeneric read-word (mem addr0)
   (:documentation "read word on memory."))
 
-;; (defmethod read-word (mem addr0)
-;;   (loop :with word = 0
-;;      :for addr :from addr0 :below (+ addr0 wordsize)
-;;      :for pos :from 0 :by 8
-;;      :do (setf (ldb (byte 8 pos) word) (address mem addr))
-;;      :finally (return word)))
-
 (defmethod read-word (mem addr0)
   (address mem addr0))
 
 (defgeneric write-word (mem addr0 word)
   (:documentation "write word on memory."))
-
-;; (defmethod write-word (mem addr0 word)
-;;  (loop :for addr :from addr0 :below (+ addr0 wordsize)
-;;     :for pos :from 0 :by 8
-;;     :do (setf (address mem addr) (ldb (byte 8 pos) word))))
 
 (defmethod write-word (mem addr0 word)
   (setf (address mem addr0) word))
@@ -260,46 +268,136 @@ Error if invalid type."
 (defgeneric vm-cons (vm a b)
   (:documentation "make new cell on VM."))
 
-(defmethod copying ((vm vm))
-  (write-word (to-memory vm) 0 empty)
-  (write-word (to-memory vm) (+ 0 wordsize) 0)
-  (let ((to-ap (* 2 wordsize)))
-    ;; NOT WORK TODO; 20100503
-    (let ((newsp to-ap))
-      (setq to-ap (copying-iter vm (value-of (sp-of vm)) to-ap)) ;; copy car
-      (setq to-ap (copying-iter vm (+ wordsize (value-of (sp-of vm))) to-ap)) ;; copy cdr
-      (setf (sp-of vm) (add-tag-pair newsp)))
-    
-    (let ((newenv to-ap))
-      (setq to-ap (copying-iter vm (value-of (env-of vm)) to-ap))
-      (setq to-ap (copying-iter vm (+ wordsize (value-of (env-of vm))) to-ap))
-      (setf (env-of vm) (add-tag-pair newenv)))
+(defvar *copied* nil)
 
-    (let ((newdump to-ap))
-      (setq to-ap (copying-iter vm (value-of (dump-of vm)) to-ap))
-      (setq to-ap (copying-iter vm (+ wordsize (value-of (dump-of vm))) to-ap))
-      (setf (dump-of vm) (add-tag-pair newdump)))
-    to-ap
-    )
+(defmethod copying ((vm vm))
+  (describe vm)
+  (format t "gc sp(~a)...~%" (sp-of vm))
+
+  (setq *copied* nil)
+
+  (copying-cell vm (value-of (sp-of vm)))
+
+  (setf (sp-of vm) 1)
+  
+  (format t "to-ap:~a~%" (to-ap-of vm))
+
+  (format t "gc sp...done~%")
+  (format t "gc env(~a)...~%" (env-of vm))
+  (let ((env0 (tag-pair (to-ap-of vm)))
+        (env (env-of vm)))
+    (format t "gc env: env=~a addr=~a~%" env (value-of env))
+    (when (eql (scheme-type-of env) :pair)
+      (copying-cell vm (value-of (env-of vm)))
+      (setf (env-of vm) env0)
+      (format t "gc env: env=~a~%" (env-of vm))))
+
+  (format t "gc env...done~%")
+  (format t "to-ap:~a~%" (to-ap-of vm))
+
+  (format t "gc dump(~a)...~%" (dump-of vm))
+  (let ((dump0 (tag-pair (to-ap-of vm)))
+        (dump (dump-of vm)))
+    (format t "gc dump: addr=~a~%" (value-of (dump-of vm)))
+    (when (eql (scheme-type-of dump) :pair)
+      (copying-cell vm (value-of (dump-of vm)))
+      (setf (dump-of vm) dump0)))
+
+  (format t "copied: ~a~%" *copied*)
+  (format t "gc dump...done~%")
+  
+  ;; (assert (> (value-of (dump-of vm))
+  ;;            (value-of (env-of vm))
+  ;;            (value-of (sp-of vm))) ()
+  ;;            "sp-env-dump assert :dump ~a env ~a sp ~a"
+  ;;            (value-of (dump-of vm))
+  ;;            (value-of (env-of vm))
+  ;;            (value-of (sp-of vm))
+  ;;            )
+  (format t ";; finally ap-of:~a to-ap-of:~a~%"
+          (ap-of vm) (to-ap-of vm))
+  (setf (ap-of vm) (to-ap-of vm))
+  (setf (to-ap-of vm) 0)
+
+  (swap-space vm)
+  (describe vm)
   )
 
-(defmethod copying-iter ((vm vm) addr to-ap0)
-  (let* ((to-ap to-ap0)
-         (val (read-word (from-memory vm) addr)))
-    (write-word (to-memory vm) to-ap val)
-    (incf to-ap wordsize)
 
-    (when (eql (scheme-type-of val) :pair)
-      ;(format t ";; recursive copying addr=~a:~%" addr)
-      (setq to-ap (copying-iter vm (value-of val) to-ap))
-      (setq to-ap (copying-iter vm (+ wordsize (value-of val)) to-ap)))
+(defmethod copying-cell ((vm vm) addr)
+  (when (member addr *copied*)
+    (return-from copying-cell))
+  (pushnew addr *copied*)
+  (assert (= (mod addr 4) 0) (addr) "address should be aligned.")
 
-    to-ap))
+  (format t "copying-cell: addr=~a~%" addr)
+  (with-accessors ((to-ap to-ap-of)) vm
+    (let* ((from (from-memory vm))
+           (to (to-memory vm))
+           (from-car (read-word from addr))
+           (from-cdr (read-word from (+ addr wordsize)))
+           )
+      (let ((to-ap0 to-ap))
+        (copying-cell-0 vm addr)
+        ;;(format t "to-ap: after cell-0: ~a~%" to-ap)
 
-(defun add-tag-pair (x)
-  (let ((y x))
-    (setf (ldb (byte 3 0) y) tag-pair)
-    y))
+        ;; car content
+        (when (eql (scheme-type-of from-car) :pair)
+          ;;(format t "replace addr from space to to space(CAR)~%")
+          (let ((tag-to-ap to-ap))
+            (setf tag-to-ap (tag-pair to-ap))
+            ;;(format t "to-ap:~a tag-to-ap:~a~%" to-ap tag-to-ap)
+            (write-word to to-ap0 tag-to-ap)
+            ;;(format t "to-ap0: ~a~%" to-ap0)
+            (copying-cell vm (value-of from-car))
+            ))
+        ;; cdr content
+        (when (eql (scheme-type-of from-cdr) :pair)
+          ;;(format t "replace addr from space to to space(CDR)~%")
+          (let ((tag-to-ap to-ap))
+            (setf tag-to-ap (tag-pair to-ap))
+            ;;(format t "to-ap:~a tag-to-ap:~a~%" to-ap tag-to-ap)
+            (write-word to (+ to-ap0 wordsize) tag-to-ap)
+            ;;(format t "to-ap0: ~a~%" to-ap0)
+            (copying-cell vm (value-of from-cdr))
+            ))
+        to-ap))))
+
+(defmethod copying-cell-0 ((vm vm) addr)
+  (assert (eql 0 (mod addr 4)) (addr) "copying-cell-0: must align:~a" addr)
+  ;;(format t "copying-cell-0: addr=~a~%" addr)
+  (with-accessors ((to-ap to-ap-of)) vm
+    (let* ((from (from-memory vm))
+           (to (to-memory vm))
+           (from-car (read-word from addr))
+           (from-cdr (read-word from (+ addr wordsize))))
+      ;;(format t "from-car:~a~%" from-car)
+      ;;(format t "from-cdr:~a~%" from-cdr)
+      ;; car
+      ;;(format t "copying-cell-0: write car:to-ap:~a~%" to-ap)
+      (write-word to to-ap from-car)
+      (incf to-ap wordsize)
+      ;; cdr
+      ;;(format t "copying-cell-0: write cdr:to-ap:~a~%" to-ap)
+      (write-word to to-ap from-cdr)
+      (incf to-ap wordsize)
+      to-ap)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+;; (defmethod copying-iter ((vm vm) addr to-ap0)
+;;   (let* ((to-ap to-ap0)
+;;          (val (read-word (from-memory vm) addr)))
+;;     (write-word (to-memory vm) to-ap val)
+;;     ;; (incf to-ap wordsize)
+
+;;     (when (eql (scheme-type-of val) :pair)
+;;       ;(format t ";; recursive copying addr=~a:~%" addr)
+;;       (setq to-ap (copying-iter vm (value-of val) to-ap))
+;;       (setq to-ap (copying-iter vm (+ wordsize (value-of val)) to-ap)))
+
+;;     to-ap))
 
 (define-condition gc-condition (condition)
   ())
@@ -310,16 +408,10 @@ Error if invalid type."
 (defmethod vm-cons ((vm vm) a b)
   (with-accessors ((ap ap-of)) vm
     (let ((ap0 ap))
-      (let ((len (length (memory-of vm))))
-        (when (>= (+ ap (* 2 wordsize)) len)
-          (signal 'gc-condition) ;; cause gc
-          (format t ";; after gc condition signaled~%")
-          (when (>= (+ ap (* 2 wordsize)) len)
-            (error 'allocation-fail-error))))
       (write-word (memory-of vm) ap a)
       (write-word (memory-of vm) (+ ap wordsize) b)
       (incf ap (* 2 wordsize))
-
+      
       (setf (ldb (byte 3 0) ap0) tag-pair)
       ap0)))
 
@@ -357,8 +449,13 @@ Error if invalid type."
 (defmethod print-object ((vm vm) stream)
   (print-unreadable-object (vm stream)
     (with-accessors ((env get-env) (code get-code) (dump get-dump)
-                     (sp get-sp) (ap get-ap)) vm
-      (format stream "VM ap: ~a sp: ~x(~x) " ap sp (value-of sp))
+                     (sp get-sp) (ap get-ap) (to-ap get-to-ap)) vm
+      (format stream "VM ap: ~a to-ap:~a sp: ~x(~x) env: ~x dump: ~x"
+              ap
+              to-ap
+              sp (value-of sp)
+              env 
+              dump)
       ;; (format stream "VM ap: ~a sp: ~x(~x) stack-top(raw): ~a(~a)" ap sp (value-of sp)
       ;;         (value-of (vm-car vm sp))
       ;;         (vm-car vm sp))
@@ -372,7 +469,7 @@ Error if invalid type."
                   if (eql addr (value-of p))
                   collect s)))
     (let ((word (read-word mem addr)))
-      (format stream "~32,'0,,b:(~4,,,a) ~8,,,@a | ~a ~a~%"
+      (format stream "~8,'0,,x:(~4,,,a) ~8,,,@a | ~a ~a~%"
               addr addr word (value-of word)
               (if arrow
                   (format nil "<-~{~a~^ ~}" arrow)
@@ -386,7 +483,7 @@ Error if invalid type."
 (defmethod describe-to-space ((vm vm) &optional (stream t))
   (format stream "====To Space(~a)====:~%" (to-space-of vm))
   ;; (format stream "~%~a~%" (to-memory vm))
-  (loop :for addr :from 0 :below (length (to-memory vm)) :by wordsize
+  (loop :for addr :from 0 :to (+ (get-to-ap vm) wordsize) :by wordsize
        :do (display-memory vm (to-memory vm) addr stream)))
 
 (defmethod describe-object ((vm vm) stream)
@@ -395,16 +492,21 @@ Error if invalid type."
     (format stream "====Profile=:~% number of execution: ~a~%" count)
     (maphash (lambda (key val) (format stream "~8,,,@a: ~a~%" key val)) profile)
     (describe-from-space vm stream)
-    ;;(describe-to-space vm stream)
+    (describe-to-space vm stream)
     ;; S
     (format stream "====Stack===:~%")
     ;; print LIST TODO
     ))
 
-;; (defun display-list (addr top-p &optional stream)
+(defun display-obj (word &optional (stream t))
+  (format stream "~a" (value-of word)))
+
+;; (defun display-list (addr top-p &optional (stream t))
 ;;   (when top-p
-;;     (format stream "~a" #\())
-;;   (display-obj (vm-
+;;     (format stream "("))
+;;   (display-obj (car addr))
+  
+;;   )
 
 ;; (define (display-pair)
 ;;   '(code (obj top) ()
@@ -468,6 +570,3 @@ Error if invalid type."
 (defmethod vm-stack-top ((vm vm))
   (with-accessors ((sp sp-of)) vm
     (vm-car vm sp)))
-
-
-

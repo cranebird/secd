@@ -1,7 +1,7 @@
 (defpackage :secd.util
-  (:use :common-lisp :cl-match)
+  (:use :common-lisp)
   (:export :set-scm-macro-character :as-keyword :with-gensyms
-           :mkstr :symb :group :flatten))
+           :mkstr :symb :group :flatten :single?))
 
 (defpackage :secd.compile
   (:use :common-lisp :secd.util)
@@ -9,10 +9,12 @@
            :compile-pass1
            :compile-pass2))
 
-(defpackage :secd.interp
-  (:use :common-lisp :secd.util :secd.compile :cl-match)
-  )
+(defpackage :secd.match
+  (:use :common-lisp :secd.util)
+  (:export :match))
 
+(defpackage :secd.interp
+  (:use :common-lisp :secd.util :secd.compile :secd.match))
 
 (defpackage :secd.vm
   (:use :common-lisp :secd.util)
@@ -50,7 +52,7 @@
            ))
 
 (defpackage :secd
-  (:use :common-lisp :secd.util :secd.compile :secd.vm :asdf :com.gigamonkeys.test)
+  (:use :common-lisp :secd.util :secd.compile :secd.vm :secd.match :asdf :com.gigamonkeys.test)
   )
 
 (defpackage :secd.test

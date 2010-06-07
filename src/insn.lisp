@@ -32,10 +32,17 @@
   "define instuction."
   (let ((insn (gensym)))
     `(defmethod dispatch ((,insn (eql ,(as-keyword name))) (,vm vm))
-       ;; (declare (optimize (speed 3) (safety 0)))
-       ;; (when (> (execution-count-of ,vm) 1)
-       ;;   (setf (ap-of ,vm) (copying ,vm))
-       ;;   (swap-space ,vm))
+
+       (when (>= (+ (ap-of ,vm) (* 10 wordsize)) (length (memory-of ,vm)))
+         (format t ";; signal gc-condition insn=~a~%" ,insn)
+         (format t ";; memory:~a ap: ~a~%" (length (memory-of ,vm)) (ap-of ,vm))
+         (signal 'gc-condition) ;; cause gc
+         (format t ";; after gc-condition signaled~%")
+         (when (>= (+ (ap-of ,vm) (* 10 wordsize)) (length (memory-of ,vm)))
+           (error 'allocation-fail-error))
+         (format t ";; gc ok?~%")
+         (describe ,vm))
+
        ,(if *debug*
             `(let ((*print-circle* t))
                (format t "; PC: ~a insn: ~a~%" (pc-of ,vm) ,insn)
@@ -68,21 +75,22 @@
       (setf sp (cons (immediate-rep c) sp))
       (incf pc))))
 
-(defmacro def-binary-insn (name sym)
-  (let ((a (gensym))
-        (b (gensym))
-        (sp (gensym))
-        (vm (gensym)))
-    `(progn
-       (def-insn ,name (,vm)
-         (with-accessors ((,sp sp-of)) ,vm
-           (let* ((,a (car ,sp))
-                  (,b (car (cdr ,sp))))
-             ;; todo; not fast
-             (setf ,sp
-                   (cons
-                    (immediate-rep
-                     (,sym (value-of ,a) (value-of ,b))) ,sp))))))))
+;;;bug
+;; (defmacro def-binary-insn (name sym)
+;;   (let ((a (gensym))
+;;         (b (gensym))
+;;         (sp (gensym))
+;;         (vm (gensym)))
+;;     `(progn
+;;        (def-insn ,name (,vm)
+;;          (with-accessors ((,sp sp-of)) ,vm
+;;            (let* ((,a (car ,sp))
+;;                   (,b (car (cdr ,sp))))
+;;              ;; todo; not fast
+;;              (setf ,sp
+;;                    (cons
+;;                     (immediate-rep
+;;                      (,sym (value-of ,a) (value-of ,b))) ,sp))))))))
 
 ;; +       (a b.s) e (OP.c) d   ->   ((a OP b).s) e c d
 ;; x = 4a; y = 4b; (x + y) = (4a + 4b) = 4(a + b)
@@ -101,7 +109,13 @@
            (res (- a b)))
       (setf sp (cons res (cdr (cdr sp)))))))
 
-(def-binary-insn * cl:*)
+;;(def-binary-insn * cl:*)
+(def-insn * (vm)
+  (with-accessors ((sp sp-of)) vm
+    (let* ((a (car sp))
+           (b (car (cdr sp)))
+           (res (immediate-rep (* (value-of a) (value-of b)))))
+      (setf sp (cons res (cdr (cdr sp)))))))
 
 ;; x == y then 4x == 4y
 (def-insn = (vm)
@@ -194,8 +208,15 @@
     (let ((level (code-ref code pc))
           (n (code-ref code (1+ pc)))
           (oldpc (get-pc vm)))
+      (assert (>= level 0) (level) "level should be > 0 : ~a" level)
+      (assert (integerp oldpc) (oldpc) "oldpc should be integer, but got ~a" oldpc)
+      (assert (integerp n) (n) "n should be integer, but got ~a" n)
       (setf sp (cons (locate vm level n) sp)
-            pc (+ 2 oldpc)))))
+            pc (+ 2 oldpc))
+      (assert (or (eql (scheme-type-of sp) :pair)
+                  (eql (value-of sp) empty))
+              (sp) "sp should be pair:~a ~a" sp )
+      )))
 
 ;; LDF     s e (LDF f.c) d            ->  ((f.e).s) e c d
 (def-insn LDF (vm)
