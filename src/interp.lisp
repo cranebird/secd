@@ -60,12 +60,23 @@
        (error "rule is not expected form: ~s" rule)))))
 
 (defun validate-rules (rules)
-  (loop :for rule :in rules :do (validate-states rule)))
+  (loop :for rule :in rules :do (validate-states rule))
+  (let ((ht (make-hash-table)))
+    (loop :for rule :in rules
+       :do
+       (multiple-value-bind (val present-p)
+           (gethash rule ht)
+         (if present-p
+             (error "multiple rule found: ~s" val)
+             (setf (gethash rule ht) rule))))))
+
+;; (defun locate (m n e) ;; for Common Lisp interpreter
+;;   (declare (optimize (speed 3) (safety 0)))
+;;   (declare (fixnum m n ))
+;;   (nth (the fixnum (1- n)) (nth (the fixnum (1- m)) e)))
 
 (defun locate (m n e) ;; for Common Lisp interpreter
-  (declare (optimize (speed 3) (safety 0)))
-  (declare (fixnum m n ))
-  (nth (the fixnum (1- n)) (nth (the fixnum (1- m)) e)))
+  (nth (1- n) (nth (1- m) e)))
 
 (defmacro def-secd-machine% (name doc &rest body)
   (let ((s (gensym "S ")) (e (gensym "E ")) (c (gensym "C ")) (d (gensym "D ")))
@@ -90,17 +101,62 @@
                          (go :loop))))))
             (values 'stop ,s))))))
 
+(defun max-rule-width (rules)
+  (let ((states
+         (loop :for rule :in rules
+            :collect
+            (match rule
+              ((s0 e0 c0 d0 :_ s1 e1 c1 d1 'where var '= init-form)
+               (list s0 e0 c0 d0 s1 e1 c1 d1))
+              ((s0 e0 c0 d0 :_ s1 e1 c1 d1)
+               (list s0 e0 c0 d0 s1 e1 c1 d1))))))
+    (loop :for (s0 e0 c0 d0 s1 e1 c1 d1) :in states
+       :maximize (length (mkstr s0)) :into s0w
+       :maximize (length (mkstr e0)) :into e0w
+       :maximize (length (mkstr c0)) :into c0w
+       :maximize (length (mkstr d0)) :into d0w
+       :maximize (length (mkstr s1)) :into s1w
+       :maximize (length (mkstr e1)) :into e1w
+       :maximize (length (mkstr c1)) :into c1w
+       :maximize (length (mkstr d1)) :into d1w
+       :finally (return (mapcar (lambda (n) (+ 2 n)) (list s0w e0w c0w d0w s1w e1w c1w d1w))))))
+       
 (defun describe-secd (rules)
-  rules
-  )
+  "describe secd rules"
+  (with-output-to-string (out)
+    (destructuring-bind  (s0w e0w c0w d0w s1w e1w c1w d1w)
+        (max-rule-width rules)
+      (let ((w (+ (apply #'+ (list s0w e0w c0w d0w s1w e1w c1w d1w))
+                  (length "-> "))))
+        (flet ((hr ()
+                 (loop :repeat w :do (format out "-") :finally (format out "~%"))))
+          (format out
+                  "           INITIAL STATE                                             TRANSFORMED STATE~%")
+          (format out "~va~va~va~va   ~va~va~va~va~%" s0w 's e0w 'e c0w 'c d0w 'd s1w 's e1w 'e c1w 'c d1w 'd)
+          (hr)
 
+          (loop :for rule :in rules 
+             do
+             (match rule
+               ((s0 e0 c0 d0 :_ s1 e1 c1 d1 'where var '= init-form)
+                (format out "~(~va~va~va~va-> ~va~va~va~va~)~%"
+                        s0w s0 e0w e0 c0w c0 d0w d0 s1w s1 e1w e1 c1w c1 d1w d1)
+                (format out "~vtwhere ~(~a = ~a~)~%"
+                        (apply #'+ (list s0w e0w c0w d0w (length "-> ")))
+                        var init-form))
+               ((s0 e0 c0 d0 :_ s1 e1 c1 d1)
+                (format out "~(~va~va~va~va-> ~va~va~va~va~)~%"
+                        s0w s0 e0w e0 c0w c0 d0w d0 s1w s1 e1w e1 c1w c1 d1w d1))))
+          (hr))))))
+  
 (defmacro def-secd-machine (name doc &rest rules)
+  "define secd machine."
   (let ((s (gensym "S ")) (e (gensym "E ")) (c (gensym "C ")) (d (gensym "D ")))
     (validate-rules rules)
     `(progn
+       (defparameter ,name (describe-secd ',rules))
        (defun ,name (,s ,e ,c ,d)
          ,doc
-         (declare (optimize (speed 3)))
          (tagbody
           :loop
             ;; (format t ";; ~s~%" (list ,s ,e ,c ,d))
@@ -122,9 +178,9 @@
                                ,e ,(pattern->cons e1)
                                ,c ,c1
                                ,d ,(pattern->cons d1))
-                        (go :loop))))))
-            (values 'stop ,s))
-         (list ,s ,e ,c ,d)))))
+                        (go :loop)))))))
+         (list ,s ,e ,c ,d))
+       ,name)))
 
 
 
