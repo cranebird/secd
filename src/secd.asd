@@ -11,7 +11,7 @@
                (:file "compile" :depends-on ("package" "util"))
                (:file "match" :depends-on ("package" "util"))
                (:file "interp" :depends-on ("package" "util"  "compile" "match"))
-               (:file "vecinterp" :depends-on ("package" "util"  "compile" "match" "interp"))
+               ;; (:file "vecinterp" :depends-on ("package" "util"  "compile" "match" "interp"))
                (:file "defmachine" :depends-on ("package" "util" "compile" "interp"))
                (:file "vm" :depends-on ("package" "util"))
                (:file "insn" :depends-on ("package" "vm" "util"))
