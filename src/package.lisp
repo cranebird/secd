@@ -7,7 +7,9 @@
   (:use :common-lisp :secd.util)
   (:export :extend-env :lookup :compile-exp
            :compile-pass1
-           :compile-pass2))
+           :compile-pass2
+           :letrec
+           ))
 
 (defpackage :secd.match
   (:use :common-lisp :secd.util)
