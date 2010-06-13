@@ -12,7 +12,7 @@
     ((numberp pattern)
      `((eql ,x ,pattern)))
     ((quoted-symbol-p pattern)
-     `((eql ,x ',(cadr pattern))))
+     `((equal ,x ',(cadr pattern))))
     ((eql pattern :_) ;; match every thing
      `(t))
     ((keywordp pattern)
@@ -20,8 +20,10 @@
     ((consp pattern)
      `((consp ,x) ,@(pattern->predicate (car pattern) `(car ,x))
        ,@(pattern->predicate (cdr pattern) `(cdr ,x))))
+    ((eql pattern t)
+     nil)
     (t
-     (error "pattern->predicate: unknown pattern: ~a" pattern))))
+     nil)))
 
 (defun pattern->binding (pattern x)
   (cond
@@ -33,15 +35,15 @@
      nil)
     ((keywordp pattern)
      nil)
+    ((eql pattern t)
+     nil)
     ((atom pattern)
      `((,pattern ,x)))
     ((single? pattern)
      `(,@(pattern->binding (car pattern) `(car ,x))))
     ((consp pattern)
      `(,@(pattern->binding (car pattern) `(car ,x))
-         ,@(pattern->binding (cdr pattern) `(cdr ,x))))
-    (t
-     (error "pattern->binding: unknown pattern: ~a" pattern))))
+         ,@(pattern->binding (cdr pattern) `(cdr ,x))))))
 
 (defmacro match (expr &rest pattern-body)
   (let ((x (gensym "x")))
