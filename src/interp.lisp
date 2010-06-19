@@ -18,6 +18,13 @@
      :if (not (member x (intersection (collect-syms state1) (collect-syms state2))))
      :collect x))
 
+(defun gather-instructions (rules)
+  (let ((instructions
+         (loop :for rule :in rules
+            :append (remove-if-not #'instruction-p (remove-duplicates (flatten rule))))))
+    (format t ";; instructions: ~s~%" instructions)
+    instructions))
+
 (defun validate-rule (rule)
   (flet ((check (init trans)
                 (let ((diff (set-difference (collect-syms trans) (collect-syms init))))
@@ -104,19 +111,23 @@
 
 
 ;; todo place
-(defun optimizer (program)
-  (cond
-    ((null program) nil)
+(defun opt (program)
+  (match program
+    (()
+     nil)
+    ((:AP :RTN)
+     `(:TAPC))
+    ((:SEL ct cf :RTN)
+     (if (and (equal (last ct) '(:JOIN)) (equal (last cf) '(:JOIN)))
+         (opt `(:SELR ,(opt (append (butlast ct) '(:RTN))) 
+                      ,(opt (append (butlast cf) '(:RTN)))))
+         `(:SEL ,(opt ct) ,(opt cf) :RTN)))
     (t
-     (match program
-       ((:AP :RTN)
-        `(:TAPC))
+     (cond
+       ((consp program)
+        (cons (opt (car program)) (opt (cdr program))))
        (t
-        (cond
-          ((consp program)
-           (cons (optimizer (car program)) (optimizer (cdr program))))
-          (t
-           program)))))))
+        program)))))
 
 (defun superinstruction (program)
   )
@@ -217,6 +228,7 @@
   (let ((s (gensym "S ")) (e (gensym "E ")) (c (gensym "C ")) (d (gensym "D "))
         (exp (gensym "exp ")))
     (validate-rules rules)
+    (gather-instructions rules)
     `(progn
        (defparameter ,name (describe-secd ',rules))
        (defun ,name (,s ,e ,c ,d)
