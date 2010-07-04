@@ -116,18 +116,18 @@
     (()
      nil)
     ((:AP :RTN)
-     `(:TAPC))
+     `(:TAP))
+    ((:RAP :RTN)
+     `(:RTAP))
     ((:SEL ct cf :RTN)
      (if (and (equal (last ct) '(:JOIN)) (equal (last cf) '(:JOIN)))
          (opt `(:SELR ,(opt (append (butlast ct) '(:RTN))) 
                       ,(opt (append (butlast cf) '(:RTN)))))
          `(:SEL ,(opt ct) ,(opt cf) :RTN)))
     (t
-     (cond
-       ((consp program)
-        (cons (opt (car program)) (opt (cdr program))))
-       (t
-        program)))))
+     (if (consp program)
+         (cons (opt (car program)) (opt (cdr program)))
+         program))))
 
 (defun superinstruction (program)
   )
@@ -135,95 +135,103 @@
 (defgeneric run-secd (secd exp)
   (:documentation "generic launcher."))
 
-;; (defmacro def-secd-machine (name doc &rest rules)
-;;   "define secd machine."
-;;   (let ((s (gensym "S ")) (e (gensym "E ")) (c (gensym "C ")) (d (gensym "D "))
-;;         (secd (gensym "secd"))
-;;         (exp (gensym "exp ")))
-;;     (validate-rules rules)
-;;     `(progn
-;;        (defparameter ,name (describe-secd ',rules))
-;;        (defun ,name (,s ,e ,c ,d)
-;;          ,doc
-;;          (declare (optimize (speed 3) (safety 0)))
-;;          (let ((,secd (list ,s ,e ,c ,d)))
-;;            (tagbody
-;;             :loop
-;;               ;;(let ((*print-circle* t))
-;;               ;;  (format t ";; ~s~%" ,secd))
-;;               (match ,secd
-;;                 ,@(loop :for rule :in rules
-;;                      :collect
-;;                      (match rule
-;;                        ((s0 e0 c0 d0 :_ s1 e1 c1 d1 'where var '= init-form)
-;;                         `((,s0 ,e0 ,c0 ,d0)
-;;                           (let ((,var ,init-form))
-;;                             (psetf (nth 0 ,secd) ,(pattern->cons s1)
-;;                                    (nth 1 ,secd) ,(pattern->cons e1)
-;;                                    (nth 2 ,secd) ,c1
-;;                                    (nth 3 ,secd) ,(pattern->cons d1))
-;;                             (go :loop))))
-;;                        ((s0 e0 c0 d0 :_ s1 e1 c1 d1)
-;;                         `((,s0 ,e0 ,c0 ,d0)
-;;                           (psetf (nth 0 ,secd) ,(pattern->cons s1)
-;;                                  (nth 1 ,secd) ,(pattern->cons e1)
-;;                                  (nth 2 ,secd) ,c1
-;;                                  (nth 3 ,secd) ,(pattern->cons d1))
-;;                           (go :loop)))))))
-;;            ,secd))
-;;        (defmethod run-secd ((secd (eql ,(as-keyword name))) ,exp)
-;;          (let ((,c (compile-pass1 ,exp ())))
-;;            (format t ";; code: ~s~%" ,c)
-;;            (,name ',s ',e ,c ',d)))
-;;        ',name)))
+;; match-n ver
+ (defun secd (s e c d)
+   (match-n (s e c d)
+            ((s e (:LDC n . c) d) (list :ldc n))
+            ((s e c d) 'base)))
 
-
-;; (defmacro def-secd-machine (name doc &rest rules)
-;;   "define secd machine."
-;;   (let ((s (gensym "S ")) (e (gensym "E ")) (c (gensym "C ")) (d (gensym "D "))
-;;         (exp (gensym "exp ")))
-;;     (validate-rules rules)
-;;     `(progn
-;;        (defparameter ,name (describe-secd ',rules))
-;;        (defun ,name (,s ,e ,c ,d)
-;;          ,doc
-;;          (declare (optimize (speed 3) (safety 0)))
-;;          (tagbody
-;;           :loop
-;;             ;; (let ((*print-circle* t))
-;;             ;;  (format t ";; ~s~%" (list ,s ,e ,c ,d)))
-;;             (match ,c
-;;               ,@(loop :for rule :in rules
-;;                    :collect
-;;                    (match rule
-;;                      ((s0 e0 c0 d0 :_ s1 e1 c1 d1 'where var '= init-form)
-;;                       `(,c0
-;;                         (match (list ,s ,e ,d)
-;;                           ((,s0 ,e0 ,d0)
-;;                            (let ((,var ,init-form))
-;;                              (psetq ,s ,(pattern->cons s1)
-;;                                     ,e ,(pattern->cons e1)
-;;                                     ,c ,c1
-;;                                     ,d ,(pattern->cons d1))
-;;                              (go :loop))))))
-;;                      ((s0 e0 c0 d0 :_ s1 e1 c1 d1)
-;;                       `(,c0
-;;                         (match (list ,s ,e ,d)
-;;                           ((,s0 ,e0 ,d0)
-;;                            (psetq ,s ,(pattern->cons s1)
-;;                                   ,e ,(pattern->cons e1)
-;;                                   ,c ,c1
-;;                                   ,d ,(pattern->cons d1))
-;;                            (go :loop)))))))))
-;;          (list ,s ,e ,c ,d))
-;;        (defmethod run-secd ((secd (eql ,(as-keyword name))) ,exp)
-;;          (let ((,c (compile-pass1 ,exp ())))
-;;            (format t ";; code: ~s~%" ,c)
-;;            (,name ',s ',e ,c ',d)))
-;;        ',name)))
-
-;; no list ver.
 (defmacro def-secd-machine (name doc &rest rules)
+  "define secd machine."
+  (let ((s (gensym "S ")) (e (gensym "E ")) (c (gensym "C ")) (d (gensym "D "))
+        (s0 (gensym))
+        (e0 (gensym))
+        (c0 (gensym))
+        (d0 (gensym))
+        (exp (gensym "exp ")))
+    ;;(validate-rules rules)
+    ;;(gather-instructions rules)
+    `(progn
+       (defparameter ,name (describe-secd ',rules))
+       (defun ,name (,s ,e ,c ,d)
+         ,doc
+         (declare (optimize (speed 3) (safety 0)))
+         (tagbody
+          :loop
+            ;; (format t ";; ~s ~s ~s ~s ~%" ,s ,e ,c ,d)
+            (match-n (,s ,e ,c ,d)
+                     ,@(loop :for rule :in rules
+                          :collect
+                          (match rule
+                            ((s0 e0 c0 d0 :_ s1 e1 c1 d1 'where var '= init-form)
+                             `((,s0 ,e0 ,c0 ,d0)
+                               (let ((,var ,init-form))
+                                 (psetq ,s ,(pattern->cons s1)
+                                        ,e ,(pattern->cons e1)
+                                        ,c ,c1
+                                        ,d ,(pattern->cons d1))
+                                 (go :loop))))
+                            ((s0 e0 c0 d0 :_ s1 e1 c1 d1)
+                             `((,s0 ,e0 ,c0 ,d0)
+                               (psetq ,s ,(pattern->cons s1)
+                                      ,e ,(pattern->cons e1)
+                                      ,c ,c1
+                                      ,d ,(pattern->cons d1))
+                               (go :loop)))))))
+         (values (list ,s ,e ,c ,d) 'end))
+       (defmethod run-secd ((secd (eql ,(as-keyword name))) ,exp)
+         (let ((,c (compile-pass1 ,exp ())))
+           (format t ";; code: ~s~%" ,c)
+           (,name ',s ',e ,c ',d)))
+       ',name)))
+
+;; one list ver.
+(defmacro def-secd-machine-one-list (name doc &rest rules)
+  "define secd machine."
+  (let ((s (gensym "S ")) (e (gensym "E ")) (c (gensym "C ")) (d (gensym "D "))
+        (secd (gensym "SECD"))
+        (exp (gensym "exp ")))
+    (validate-rules rules)
+    (gather-instructions rules)
+    `(progn
+       (defparameter ,name (describe-secd ',rules))
+       (defun ,name (,s ,e ,c ,d)
+         ,doc
+         (declare (optimize (speed 3) (safety 0)))
+         (let ((,secd (list ,s ,e ,c ,d)))
+           (tagbody
+            :loop
+              (let ((*print-circle* t))
+                (format t ";; ~s~%" ,secd))
+              (match ,secd
+                ,@(loop :for rule :in rules
+                     :collect
+                     (match rule
+                       ((s0 e0 c0 d0 :_ s1 e1 c1 d1 'where var '= init-form)
+                        `((,s0 ,e0 ,c0 ,d0)
+                          (let ((,var ,init-form))
+                            (psetf (nth 0 ,secd) ,(pattern->cons s1)
+                                   (nth 1 ,secd) ,(pattern->cons e1)
+                                   (nth 2 ,secd) ,c1
+                                   (nth 3 ,secd) ,(pattern->cons d1))
+                            (go :loop))))
+                       ((s0 e0 c0 d0 :_ s1 e1 c1 d1)
+                        `((,s0 ,e0 ,c0 ,d0)
+                          (psetf (nth 0 ,secd) ,(pattern->cons s1)
+                                 (nth 1 ,secd) ,(pattern->cons e1)
+                                 (nth 2 ,secd) ,c1
+                                 (nth 3 ,secd) ,(pattern->cons d1))
+                          (go :loop)))))))
+           (values ,secd 'end)))
+       (defmethod run-secd ((secd (eql ,(as-keyword name))) ,exp)
+         (let ((,c (compile-pass1 ,exp ())))
+           (format t ";; code: ~s~%" ,c)
+           (,name ',s ',e ,c ',d)))
+       ',name)))
+
+;; no list ver. care multiple rule for :AP
+;;; 20100627 bug?
+(defmacro def-secd-machine-%% (name doc &rest rules)
   "define secd machine."
   (let ((s (gensym "S ")) (e (gensym "E ")) (c (gensym "C ")) (d (gensym "D "))
         (exp (gensym "exp ")))
@@ -234,10 +242,67 @@
        (defun ,name (,s ,e ,c ,d)
          ,doc
          (declare (optimize (speed 3) (safety 0)))
+         (let ((*print-circle* nil))
+           (format t "~(~80s~40s~120s~60s~)~%" ,s ,e ,c ,d))
          (tagbody
           :loop
-            ;; (let ((*print-circle* t))
-            ;;  (format t ";; ~s~%" (list ,s ,e ,c ,d)))
+            (let ((*print-circle* nil))
+              (format t "~80s~40s~120s~60s~%" ,s ,e ,c ,d))
+            (match (list ,s ,c)
+              ,@(loop :for rule :in rules
+                   :collect
+                   (match rule
+                     ((s0 e0 c0 d0 :_ s1 e1 c1 d1 'where var '= init-form)
+                      `((,s0 ,c0)
+                        (match ,s
+                          (,s0
+                           (match ,e
+                             (,e0
+                              (match ,d
+                                (,d0
+                                 (let ((,var ,init-form))
+                                   (psetq ,s ,(pattern->cons s1)
+                                          ,e ,(pattern->cons e1)
+                                          ,c ,c1
+                                          ,d ,(pattern->cons d1))
+                                   (go :loop))))))))))
+                     ((s0 e0 c0 d0 :_ s1 e1 c1 d1)
+                      `((,s0 ,c0)
+                        (match ,s
+                          (,s0
+                           (match ,e
+                             (,e0
+                              (match ,d
+                                (,d0
+                                 (psetq ,s ,(pattern->cons s1)
+                                        ,e ,(pattern->cons e1)
+                                        ,c ,c1
+                                        ,d ,(pattern->cons d1))
+                                 (go :loop)))))))))))))
+         (values (list ,s ,e ,c ,d) 'end))
+       (defmethod run-secd ((secd (eql ,(as-keyword name))) ,exp)
+         (let ((,c (compile-pass1 ,exp ())))
+           (format t ";; code: ~s~%" ,c)
+           (,name ',s ',e ,c ',d)))
+       ',name)))
+
+(defmacro def-secd-machine% (name doc &rest rules)
+  "define secd machine."
+  (let ((s (gensym "S ")) (e (gensym "E ")) (c (gensym "C ")) (d (gensym "D "))
+        (exp (gensym "exp ")))
+    (validate-rules rules)
+    (gather-instructions rules)
+    `(progn
+       (defparameter ,name (describe-secd ',rules))
+       (defun ,name (,s ,e ,c ,d)
+         ,doc
+         (declare (optimize (speed 3) (safety 0)))
+         (let ((*print-circle* nil))
+           (format t "~(~80s~40s~120s~60s~)~%" ,s ,e ,c ,d))
+         (tagbody
+          :loop
+            (let ((*print-circle* nil))
+              (format t "~80s~40s~120s~60s~%" ,s ,e ,c ,d))
             (match ,c
               ,@(loop :for rule :in rules
                    :collect
@@ -269,52 +334,9 @@
                                         ,c ,c1
                                         ,d ,(pattern->cons d1))
                                  (go :loop)))))))))))))
-         (list ,s ,e ,c ,d))
+         (values (list ,s ,e ,c ,d) 'end))
        (defmethod run-secd ((secd (eql ,(as-keyword name))) ,exp)
          (let ((,c (compile-pass1 ,exp ())))
            (format t ";; code: ~s~%" ,c)
            (,name ',s ',e ,c ',d)))
        ',name)))
-
-;; (defmacro def-secd-machine (name doc &rest rules)
-;;   "define secd machine."
-;;   (let ((s (gensym "S ")) (e (gensym "E ")) (c (gensym "C ")) (d (gensym "D "))
-;;         (exp (gensym "exp ")))
-;;     (validate-rules rules)
-;;     `(progn
-;;        (defparameter ,name (describe-secd ',rules))
-;;        (defun ,name (,s ,e ,c ,d)
-;;          ,doc
-;;          (declare (optimize (speed 3) (safety 0)))
-;;          (tagbody
-;;           :loop
-;;             ;; (let ((*print-circle* t))
-;;             ;;   (format t ";; ~s~%" (list ,s ,e ,c ,d)))
-;;             (match (list ,s ,e ,c ,d)
-;;               ,@(loop :for rule :in rules
-;;                    :collect
-;;                    (match rule
-;;                      ((s0 e0 c0 d0 :_ s1 e1 c1 d1 'where var '= init-form)
-;;                       `((,s0 ,e0 ,c0 ,d0)
-;;                         (let ((,var ,init-form))
-;;                           (psetq ,s ,(pattern->cons s1)
-;;                                  ,e ,(pattern->cons e1)
-;;                                  ,c ,c1
-;;                                  ,d ,(pattern->cons d1))
-;;                           (go :loop))))
-;;                      ((s0 e0 c0 d0 :_ s1 e1 c1 d1)
-;;                       `((,s0 ,e0 ,c0 ,d0)
-;;                         (psetq ,s ,(pattern->cons s1)
-;;                                ,e ,(pattern->cons e1)
-;;                                ,c ,c1
-;;                                ,d ,(pattern->cons d1))
-;;                         (go :loop)))))))
-;;          (list ,s ,e ,c ,d))
-;;        (defmethod run-secd ((secd (eql ,(as-keyword name))) ,exp)
-;;            (let ((,c (compile-pass1 ,exp ())))
-;;              (format t ";; code: ~s~%" ,c)
-;;              (,name ',s ',e ,c ',d)))
-;;        ',name)))
-
-
-
