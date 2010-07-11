@@ -189,8 +189,70 @@
            (,name ',s ',e ,c ',d)))
        ',name)))
 
+(defun insn->code (insn rules)
+  
+  )
 
+(defun secd-comp (s e c d)
+  (tagbody :loop
+     (match-n (s e c d)
+       ((s1 e (:LDC n . c1) d)
+        (setq s (cons n s)
+              c c1)
+        (go :loop))
+       (((a b . s1) e (:+ . c1) d)
+        (setq s (cons (+ a b) s1)
+              c c1)
+        (go :loop)))))
+;; '(:LDC 3 :LDC 4 :+) =>
 
+(defun secd-c% ()
+  (let ((s '(s)) (e '(e)) (c '(:LDC 3 :LDC 4 :+)) (d '(d)))
+    ;; :LDC 3
+    (setq s (cons 3 s)
+          c (cddr c))
+    ;; :LDC 4
+    (setq s (cons 4 s)
+          c (cddr c))
+    ;; :+
+    (setq s (cons (+ (car s) (cadr s)) (cddr s))
+          c (cdr c))
+    (list s e c d)
+    ))
+              
 
+(defun secd->lisp (exp)
+  `(let ((s nil)
+         (e nil)
+         (c ,(compile-pass1 exp))
+         (d nil))
+     (progn
+       ,@(secd-insn->lisp 's 'e (compile-pass1 exp) 'd nil))))
 
+;; INTERP> (compile-pass1  '((lambda () 13)))
+;; (:NIL :LDF (:LDC 13 :RTN) :AP :STOP)
+
+;;   ( s e (:LDF |c'| . c) d                       -> ((|c'| . e) . s) e c d )
+;;   ( (x . z) |e'| (:RTN . |c'|) (s e c . d)      -> (x . s) e c d )
+;;   ( ((|c'| . |e'|) v . s) e (:AP . c) d         -> nil (v . |e'|) |c'| (s e c . d) )
+;;
+
+(defun secd-insn->lisp (s e c d codes)
+  (if (null c)
+      (reverse codes)
+      (match c
+        ((:LDC x . cn)
+         (push `(setq ,s (cons ,x ,s)
+                      ,c (cddr ,c)) codes)
+         (secd-insn->lisp s e cn d codes))
+        ((:+ . cn)
+         (push `(setq ,s (cons (+ (car ,s) (cadr ,s)) ,(cddr s))
+                      ,c (cdr ,c)) codes)
+         (secd-insn->lisp s e cn d codes))
+        ((:STOP . cn)
+         (push `(break) codes)
+         (secd-insn->lisp s e cn d codes))
+        (t "end"))
+
+      ))
 
