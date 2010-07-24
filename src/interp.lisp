@@ -212,6 +212,7 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
             `(,v ,(pattern->cons x1)))))
     `(setq ,@setq-body)))
 
+;; new version.
 (defmacro defsecd (name (&rest states)
                    doc &rest definitions)
   "define secd machine."
@@ -220,7 +221,7 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
     `(progn
        (defun ,name ,syms
          ,doc
-         (declare (optimize (debug 0) (speed 3) (safety 0)))
+         ;; (declare (optimize (debug 0) (speed 3) (safety 0)))
          (tagbody :loop
             ,(rules->match-n rules '(go :loop)))
          (values (list ,@syms) 'end))
