@@ -1,15 +1,11 @@
 (in-package :secd.interp)
 
 ;; PAIP 9.2 Compiling One Language into Another
+(defstruct rule states lhs rhs var init-form rhs-action)
 
-;; ( s e (:NIL . c) d                         -> (nil . s) e c d )
-;; ( s e (:LDC x . c) d                       -> (x . s) e c d )
-;; ( (a b . s) e (:+ . c) d                   -> (x . s) e c d where x = (+ a b) )
-
-(defstruct rule states lhs rhs var init-form)
 
 (defun collect-syms (lst)
-  "collect not instruction."
+  "collect state symbols."
   (remove-if #'instruction-p (remove-duplicates (flatten lst))))
 
 (defun valid-rule (rule)
@@ -34,19 +30,39 @@
               (return (values t rules))
               (return (values nil duplicate-lhs))))))
 
-(defun parse-rules (states rules)
-  "Parse rules into list of rule structure.
+(defun compile-spec (states spec)
+  (let* ((pos-arrow (position '-> spec :test #'equal))
+         (pos-where (position 'where spec :test #'equal))
+         (lhs (subseq spec 0 pos-arrow))
+         (rhs (subseq spec (1+ pos-arrow) (+ (1+ pos-arrow) (length lhs))))
+         (var (if pos-where
+                  (nth (1+ pos-where) spec)))
+         (init-form (if pos-where
+                        (nth (+ 3 pos-where) spec))))
+    (assert (and pos-arrow (> pos-arrow 0)) (pos-arrow) "compile-spec found invalid format: ~s" spec)
+    (let ((rule (make-rule :states states :lhs lhs :rhs rhs :var var :init-form init-form)))
+      (labels ((state->cons (state)
+             (if (consp state)
+                 `(cons ,(state->cons (car state))
+                        ,(state->cons (cdr state)))
+                 state)))
+        (let ((body (loop :for var :in (rule-states rule)
+                       :for rhs-state :in (rule-rhs rule)
+                       :for form = (state->cons rhs-state)
+                       :if (not (eql rhs-state form))
+                       :append `(,var ,form))))
+          (setf (rule-rhs-action rule)
+                (if (rule-var rule)
+                    `(let ((,(rule-var rule) ,(rule-init-form rule)))
+                       (psetq ,@body))
+                    `(psetq ,@body)))))
+      rule)))
+
+(defun compile-specs (states specs)
+  "Parse specs into list of rule structure.
 rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side where var = init-form"
-  (loop :for rule :in rules
-     :for pos-arrow = (position '-> rule :test #'equal)
-     :for pos-where = (position 'where rule :test #'equal)
-     :for lhs = (subseq rule 0 pos-arrow)
-     :for rhs = (subseq rule (1+ pos-arrow) (+ (1+ pos-arrow) (length lhs)))
-     :for var = (if pos-where
-                    (nth (1+ pos-where) rule))
-     :for init-form = (if pos-where
-                          (nth (+ 3 pos-where) rule))
-     :for rule-obj = (make-rule :states states :lhs lhs :rhs rhs :var var :init-form init-form)
+  (loop :for spec :in specs
+     :for rule-obj = (compile-spec states spec)
      :collect rule-obj :into definitions
      :finally
      (multiple-value-bind (success result)
@@ -54,6 +70,36 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
        (if success
            (return result)
            (error "found invalid rule: ~a" result)))))
+
+;; old
+(defun parse-rule (states rule)
+  (let* ((pos-arrow (position '-> rule :test #'equal))
+         (pos-where (position 'where rule :test #'equal))
+         (lhs (subseq rule 0 pos-arrow))
+         (rhs (subseq rule (1+ pos-arrow) (+ (1+ pos-arrow) (length lhs))))
+         (var (if pos-where
+                  (nth (1+ pos-where) rule)))
+         (init-form (if pos-where
+                        (nth (+ 3 pos-where) rule))))
+    (assert (and pos-arrow (> pos-arrow 0)) (pos-arrow) "parse-rule found invalid format: ~s" rule)
+    (make-rule :states states :lhs lhs :rhs rhs :var var :init-form init-form)))
+
+;; old
+(defun parse-rules (states rules)
+  "Parse rules into list of rule structure.
+rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side where var = init-form"
+  (loop :for rule :in rules
+     :for rule-obj = (parse-rule states rule)
+     :collect rule-obj :into definitions
+     :finally
+     (multiple-value-bind (success result)
+         (validate-rules definitions)
+       (if success
+           (return result)
+           (error "found invalid rule: ~a" result)))))
+
+
+
 
 (defun rule->match-n-pattern (rule)
   `(,(rule-lhs rule)))
@@ -72,45 +118,40 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
              (progn ,@body))
           `(progn ,@body)))))
 
-;; (defun rule->match-n-clause (rule &optional cont)
-;;   "Convert a rule to match-n clauses."
-;;   `(,@(rule->match-n-pattern rule)
-;;      ,(rule->match-n-body rule)))
-
-(defun rules->match-n (rules &optional cont)
+(defun rules->match-n (rules &optional cont base-case)
   "Convert rules to match-n"
   (let ((states (rule-states (car rules))))
     `(match-n ,states
        ,@(loop :for rule :in rules
-            :for pattern = (rule->match-n-pattern rule)
-            :for body = (rule->match-n-body rule)
+            :for pattern = (rule-lhs rule)
+            :for body = (rule-rhs-action rule)
             :collect
             `(,@pattern
               (progn
                 ,body
-                ,cont))))))
+                ,cont)))
+       ;; base case
+       (,(loop :for s :in states :collect 't)
+         (,base-case ,@states)))))
 
-(defun pattern->cons (pattern)
-  "(a . b) => (cons a b)"
-  (if (consp pattern)
-      `(cons ,(pattern->cons (car pattern))
-             ,(pattern->cons (cdr pattern)))
-      pattern))
-
-
-(defun ignorable-sym (state1 state2)
-  (loop :for x :in (collect-syms state1)
-     :if (not (member x (intersection (collect-syms state1) (collect-syms state2))))
-     :collect x))
-
-(defun gather-instructions (rules)
-  (let ((instructions
-         (loop :for rule :in rules
-            :append (remove-if-not #'instruction-p (remove-duplicates (flatten rule))))))
-    (format t ";; instructions: ~s~%" instructions)
-    instructions))
+;; (defun rules->match-n (rules &optional cont base-case)
+;;   "Convert rules to match-n"
+;;   (let ((states (rule-states (car rules))))
+;;     `(match-n ,states
+;;        ,@(loop :for rule :in rules
+;;             :for pattern = (rule->match-n-pattern rule)
+;;             :for body = (rule->match-n-body rule)
+;;             :collect
+;;             `(,@pattern
+;;               (progn
+;;                 ,body
+;;                 ,cont)))
+;;        ;; base case
+;;        (,(loop :for s :in states :collect 't)
+;;          (,base-case ,@states)))))
 
 (declaim (inline locate))
+
 (defun locate (m n e) ;; for Common Lisp interpreter
   (declare (optimize (speed 3) (safety 0) (debug 0)))
   (declare (type fixnum m n ))
@@ -198,72 +239,55 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
          (cons (opt (car program)) (opt (cdr program)))
          program))))
 
-
 (defgeneric run (secd exp)
   (:documentation "generic launcher."))
 
-(defun secd-trans (s e c d s0 e0 c0 d0 s1 e1 c1 d1)
-  (let ((setq-body
-         (loop :for v :in (list s e c d)
-            :for x0 :in (list s0 e0 c0 d0)
-            :for x1 :in (list s1 e1 c1 d1)
-            :unless (eql x0 x1)
-            :append
-            `(,v ,(pattern->cons x1)))))
-    `(setq ,@setq-body)))
+(defgeneric secd-eval (fn exp)
+  (:documentation "generic launcher."))
 
 ;; new version.
-(defmacro defsecd (name (&rest states)
-                   doc &rest definitions)
+(defmacro defsecd (name (&rest states) &rest spec)
   "define secd machine."
-  (let* ((syms (loop :for s :in states :collect (gensym (mkstr s))))
-         (rules (parse-rules syms definitions)))
+  (let ((transitions (assoc :transitions spec))
+        (last-value (assoc :last-value spec)))
+    (let* ((states (loop :for s :in states :collect (gensym (mkstr s))))
+           (rules (compile-specs states (cdr transitions))))
+      (format t "rules = ~a~%" rules)
     `(progn
-       (defun ,name ,syms
-         ,doc
-         ;; (declare (optimize (debug 0) (speed 3) (safety 0)))
-         (tagbody :loop
-            ,(rules->match-n rules '(go :loop)))
-         (values (list ,@syms) 'end))
-       ',name)))
-
-;; match-n ver.
-(defmacro def-secd-machine (name doc &rest rules)
-  "define secd machine."
-  (let ((s (gensym "S ")) (e (gensym "E ")) (c (gensym "C ")) (d (gensym "D "))
-        (exp (gensym "exp ")))
-    ;;(validate-rules rules)
-    ;;(gather-instructions rules)
-    `(progn
-       (defparameter ,name (describe-secd ',rules))
-       (defun ,name (,s ,e ,c ,d)
-         ,doc
+       (defun ,name (,@states)
          (declare (optimize (debug 0) (speed 3) (safety 0)))
-         (tagbody
-          :loop
-            (format t ";; ~s ~s ~s ~s ~%" ,s ,e ,c ,d)
-            (match-n (,c ,s ,e ,d)
-              ,@(loop :for rule :in rules
-                   :collect
-                   (match rule
-                     ((s0 e0 c0 d0 :_ s1 e1 c1 d1 'where var '= init-form)
-                      `((,c0 ,s0 ,e0 ,d0)
-                        (let ((,var ,init-form))
-                          ,(secd-trans s e c d s0 e0 c0 d0 s1 e1 c1 d1)
-                          (go :loop))))
-                     ((s0 e0 c0 d0 :_ s1 e1 c1 d1)
-                      `((,c0 ,s0 ,e0 ,d0)
-                        ,(secd-trans s e c d s0 e0 c0 d0 s1 e1 c1 d1)
-                        (go :loop)))))))
-         (values (list ,s ,e ,c ,d) 'end))
-       (defmethod run ((secd (eql ,(as-keyword name))) ,exp)
-         (let ((,c (compile-pass1 ,exp ())))
-           (format t ";; code: ~s~%" ,c)
-           (,name ',s ',e ,c ',d)))
-       ',name)))
+         ,(rules->match-n rules `(,name ,@states) (cadr last-value))
+         )))))
+
+;; (defmacro defsecd (name (&rest states) doc &rest definitions)
+;;   "define secd machine."
+;;   (let* ((syms (loop :for s :in states :collect (gensym (mkstr s))))
+;;          (rules (parse-rules syms definitions)))
+;;     `(progn
+;;        (defun ,name ,syms
+;;          ,doc
+;;          ;; (declare (optimize (debug 0) (speed 3) (safety 0)))
+;;          ;;(tagbody :loop
+;;          ;;   ,(rules->match-n rules '(go :loop)))
+
+;;          ;; ,(rules->match-n rules
+;;          ;;                  `(progn (format t "~s~%" (list ,@syms)) (,name ,@syms)))
+
+;;          ,(rules->match-n rules `(,name ,@syms))
+;;          ))))
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; stack
+
+(defun pattern->cons (pattern)
+  "(a . b) => (cons a b)"
+  (if (consp pattern)
+      `(cons ,(pattern->cons (car pattern))
+             ,(pattern->cons (cdr pattern)))
+      pattern))
+
 (defun pattern->stack (pattern)
   "(a . b) => "
   (if (consp pattern)
