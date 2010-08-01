@@ -30,16 +30,17 @@
               (return (values t rules))
               (return (values nil duplicate-lhs))))))
 
-(defun compile-spec (states spec)
-  (let* ((pos-arrow (position '-> spec :test #'equal))
-         (pos-where (position 'where spec :test #'equal))
-         (lhs (subseq spec 0 pos-arrow))
-         (rhs (subseq spec (1+ pos-arrow) (+ (1+ pos-arrow) (length lhs))))
+(defun compile-transition (states transition)
+  "compile transition into rule structure."
+  (let* ((pos-arrow (position '-> transition :test #'equal))
+         (pos-where (position 'where transition :test #'equal))
+         (lhs (subseq transition 0 pos-arrow))
+         (rhs (subseq transition (1+ pos-arrow) (+ (1+ pos-arrow) (length lhs))))
          (var (if pos-where
-                  (nth (1+ pos-where) spec)))
+                  (nth (1+ pos-where) transition)))
          (init-form (if pos-where
-                        (nth (+ 3 pos-where) spec))))
-    (assert (and pos-arrow (> pos-arrow 0)) (pos-arrow) "compile-spec found invalid format: ~s" spec)
+                        (nth (+ 3 pos-where) transition))))
+    (assert (and pos-arrow (> pos-arrow 0)) (pos-arrow) "compile-transition found invalid format: ~s" transition)
     (let ((rule (make-rule :states states :lhs lhs :rhs rhs :var var :init-form init-form)))
       (labels ((state->cons (state)
              (if (consp state)
@@ -49,7 +50,7 @@
         (let ((body (loop :for var :in (rule-states rule)
                        :for rhs-state :in (rule-rhs rule)
                        :for form = (state->cons rhs-state)
-                       :if (not (eql rhs-state form))
+                       :unless (eql var form)
                        :append `(,var ,form))))
           (setf (rule-rhs-action rule)
                 (if (rule-var rule)
@@ -58,11 +59,11 @@
                     `(psetq ,@body)))))
       rule)))
 
-(defun compile-specs (states specs)
+(defun compile-transitions (states transitions)
   "Parse specs into list of rule structure.
 rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side where var = init-form"
-  (loop :for spec :in specs
-     :for rule-obj = (compile-spec states spec)
+  (loop :for transition :in transitions
+     :for rule-obj = (compile-transition states transition)
      :collect rule-obj :into definitions
      :finally
      (multiple-value-bind (success result)
@@ -70,53 +71,6 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
        (if success
            (return result)
            (error "found invalid rule: ~a" result)))))
-
-;; old
-(defun parse-rule (states rule)
-  (let* ((pos-arrow (position '-> rule :test #'equal))
-         (pos-where (position 'where rule :test #'equal))
-         (lhs (subseq rule 0 pos-arrow))
-         (rhs (subseq rule (1+ pos-arrow) (+ (1+ pos-arrow) (length lhs))))
-         (var (if pos-where
-                  (nth (1+ pos-where) rule)))
-         (init-form (if pos-where
-                        (nth (+ 3 pos-where) rule))))
-    (assert (and pos-arrow (> pos-arrow 0)) (pos-arrow) "parse-rule found invalid format: ~s" rule)
-    (make-rule :states states :lhs lhs :rhs rhs :var var :init-form init-form)))
-
-;; old
-(defun parse-rules (states rules)
-  "Parse rules into list of rule structure.
-rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side where var = init-form"
-  (loop :for rule :in rules
-     :for rule-obj = (parse-rule states rule)
-     :collect rule-obj :into definitions
-     :finally
-     (multiple-value-bind (success result)
-         (validate-rules definitions)
-       (if success
-           (return result)
-           (error "found invalid rule: ~a" result)))))
-
-
-
-
-(defun rule->match-n-pattern (rule)
-  `(,(rule-lhs rule)))
-
-(defun rule->match-n-body (rule)
-  (labels ((state->cons (state)
-             (if (consp state)
-                 `(cons ,(state->cons (car state))
-                        ,(state->cons (cdr state)))
-                 state)))
-    (let ((body (loop :for state :in (rule-states rule)
-                   :for rhs-state :in (rule-rhs rule)
-                   :collect `(setq ,state ,(state->cons rhs-state)))))
-      (if (rule-var rule)
-          `(let ((,(rule-var rule) ,(rule-init-form rule)))
-             (progn ,@body))
-          `(progn ,@body)))))
 
 (defun rules->match-n (rules &optional cont base-case)
   "Convert rules to match-n"
@@ -125,30 +79,10 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
        ,@(loop :for rule :in rules
             :for pattern = (rule-lhs rule)
             :for body = (rule-rhs-action rule)
-            :collect
-            `(,@pattern
-              (progn
-                ,body
-                ,cont)))
+            :collect `(,pattern (progn ,body ,cont)))
        ;; base case
        (,(loop :for s :in states :collect 't)
          (,base-case ,@states)))))
-
-;; (defun rules->match-n (rules &optional cont base-case)
-;;   "Convert rules to match-n"
-;;   (let ((states (rule-states (car rules))))
-;;     `(match-n ,states
-;;        ,@(loop :for rule :in rules
-;;             :for pattern = (rule->match-n-pattern rule)
-;;             :for body = (rule->match-n-body rule)
-;;             :collect
-;;             `(,@pattern
-;;               (progn
-;;                 ,body
-;;                 ,cont)))
-;;        ;; base case
-;;        (,(loop :for s :in states :collect 't)
-;;          (,base-case ,@states)))))
 
 (declaim (inline locate))
 
@@ -246,16 +180,17 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
   (:documentation "generic launcher."))
 
 ;; new version.
-(defmacro defsecd (name (&rest states) &rest spec)
+(defmacro deftransition (name (&rest states) &rest spec)
   "define secd machine."
-  (let ((transitions (assoc :transitions spec))
+  (let ((transitions (cdr (assoc :transitions spec)))
         (last-value (assoc :last-value spec)))
     (let* ((states (loop :for s :in states :collect (gensym (mkstr s))))
-           (rules (compile-specs states (cdr transitions))))
+           (rules (mapcar #'(lambda (tr)
+                              (compile-transition states tr)) transitions)))
       (format t "rules = ~a~%" rules)
     `(progn
        (defun ,name (,@states)
-         (declare (optimize (debug 0) (speed 3) (safety 0)))
+         ;;(declare (optimize (debug 0) (speed 3) (safety 0)))
          ,(rules->match-n rules `(,name ,@states) (cadr last-value))
          )))))
 
@@ -301,7 +236,7 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
          (loop :for v :in (list s e c d)
             :for x0 :in (list s0 e0 c0 d0)
             :for x1 :in (list s1 e1 c1 d1)
-            :unless (eql x0 x1)
+            ;;:unless (eql x0 x1)
             :append
             `(,v ,(pattern->stack x1)))))
     `(progn ,@body)))
@@ -338,3 +273,35 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
            (format t ";; code: ~s~%" ,c)
            (,name ',s ',e ,c ',d)))
        ',name)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; compiled 
+;; TEST> (test-secd-eval '((lambda () 13)))
+;; 13
+;; TEST> (comp '((lambda () 13)))
+;; (:NIL :LDF (:LDC 13 :RTN) :AP :STOP)
+
+
+(defun foobar (s e c d)
+  ;; :nil
+  (setq s (cons nil s))
+  ;; :ldf
+  (setq s
+        (cons
+         #'(lambda ()
+             ;; :ldc 13
+             (setq s (cons 13 s))
+             ;; :rtn
+             (psetq s (cons (car d) (cdr s))
+                    e (cadr d)
+                    c (caddr d)
+                    d (cdddr d)))
+         e))
+  ;; :ap
+  ;; (psetq s nil
+  ;;        e (cons (cadr s) (cdar s))
+
+
+  )
+  
