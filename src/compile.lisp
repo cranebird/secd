@@ -32,64 +32,127 @@
 (defun extend-env (plist env)
   "Extend environment in compile time."
   (append
-   (list (loop for idx from 1 for var in plist
-            collect (cons var idx))) env))
+   (list (loop :for idx :from 1 :for var :in plist
+            :collect (cons var idx))) env))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Compiler
-(defun compile-pass1 (exp env)
-  "Compile s-expression EXP in environment ENV."
-  (cond
-    ((null exp) nil)
-    ((numberp exp) `(:LDC ,exp))
-    ((eql exp #t) `(:LDC #t))
-    ((eql exp #f) `(:LDC #f))
-    ((symbolp exp) `(:LD ,(lookup exp env)))
-    ((consp exp)
-     (destructuring-bind (op . rest) exp
-       (cond
-         ((member op '(+ - * > < =))
-          (destructuring-bind (a b) rest
-            `(,@(compile-pass1 b env) ,@(compile-pass1 a env)
-                ,(as-keyword op))))
-         ((member op '(cons))
-          (destructuring-bind (a b) rest
-            `(,@(compile-pass1 b env) ,@(compile-pass1 a env)
-                ,(as-keyword op))))
-         ((member op '(car cdr))
-          (destructuring-bind (a) rest
-            `(,@(compile-pass1 a env) ,(as-keyword op))))
-         ((eql op 'if)
-          (destructuring-bind (e1 e2 e3) rest
-            `(,@(compile-pass1 e1 env) :SEL
-                (,@(compile-pass1 e2 env) :JOIN)
-                (,@(compile-pass1 e3 env) :JOIN))))
-         ((eql op 'lambda)
-          (destructuring-bind (plist body) rest
-            `(:LDF ,(append (compile-pass1 body (extend-env plist env)) '(:RTN)))))
-         ((eql op 'let) ;; (let ((x 3)) body) ==  ((lambda (x) body) 3)
-          (destructuring-bind (bindings body) rest
-            (let ((vars (mapcar #'car bindings))
-                  (inits (mapcar #'cadr bindings)))
-              (compile-pass1
-               `((lambda ,vars ,body) ,@inits) env))))
-         ((eql op 'letrec) ;; (('letrec ((xk fk) ...) body)
-          (destructuring-bind (bindings body) rest
-            (let ((vars (mapcar #'car bindings))
-                  (inits (reverse (mapcar #'cadr bindings))))
-              `(:DUM :NIL
-                ,@(loop :for init :in inits
-                    :append (append (compile-pass1 init (extend-env vars env)) '(:CONS)))
-                :LDF
-                ,(append (compile-pass1 body (extend-env vars env)) '(:RTN))
-                :RAP))))
-         (t ;; (e ek ...)
-          `(:NIL
-            ,@(loop :for en :in (reverse rest)
-                 :append (append (compile-pass1 en env) '(:CONS)))
-            ,@(compile-pass1 op env) :AP)))))
-    (t
-     (error "compile-pass1 unknown expression: ~a" exp))))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defun instruction-p (x) (keywordp x))
+
+(defun compile-pass1 (exp &optional env)
+  "Compile s-expression EXP in environment ENV."
+  (labels ((comp (exp env c)
+             (cond
+               ((null exp)
+                c)
+               ((numberp exp)
+                (comp () env `(:LDC ,exp ,@c)))
+               ((eql exp #t)
+                (comp () env `(:LDC #t ,@c)))
+               ((eql exp #f) 
+                (comp () env `(:LDC #f ,@c)))
+               ((symbolp exp)
+                (comp () env `(:LD ,(lookup exp env) ,@c)))
+               ((consp exp)
+                (match exp ;;
+                  (('+ e1 e2)
+                   (comp e2 env (comp e1 env `(:+ ,@c))))
+                  (('- e1 e2)
+                   (comp e2 env (comp e1 env `(:- ,@c))))
+                  (('* e1 e2)
+                   (comp e2 env (comp e1 env `(:* ,@c))))
+                  (('> e1 e2)
+                   (comp e2 env (comp e1 env `(:> ,@c))))
+                  (('< e1 e2)
+                   (comp e2 env (comp e1 env `(:< ,@c))))
+                  (('= e1 e2)
+                   (comp e2 env (comp e1 env `(:= ,@c))))
+                  (('mod e1 e2)
+                   (comp e2 env (comp e1 env `(:mod ,@c))))
+                  ;; cons cell
+                  (('cons e1 e2)
+                   (comp e2 env (comp e1 env `(:CONS ,@c))))
+                  (('car e1 e2)
+                   (comp e2 env (comp e1 env `(:CAR ,@c))))
+                  (('cdr e1 e2)
+                   (comp e2 env (comp e1 env `(:CDR ,@c))))
+                  ;; vector
+                  (('vector-length e1)
+                   (comp e1 env `(:VLEN ,@c)))
+                  (('vector . rest) ;; (vector e1 e2 ...)
+                   `(:NIL ,@(loop :for e :in (reverse rest)
+                               :append (comp e env '(:CONS))) :L2V ,@c))
+                  (('vector-ref vec n) ;; (vector-ref vec n)
+                    (comp vec env (comp n env `(:VREF ,@c))))
+                  (('vector-set! vec n obj) ;; (vector-set! vec n obj)
+                   (comp vec env (comp n env (comp obj env `(:VSET ,@c)))))
+                  ;; if
+                  (('if e1 ct cf)
+                   (comp e1 env `(:SEL ,(comp ct env '(:JOIN)) ,(comp cf env '(:JOIN)) ,@c)))
+                  ;; lambda
+                  (('lambda plist . body)
+                   (let ((new-env (extend-env plist env)))
+                     ;;(format t "butlast :~a~%" (butlast body))
+                     ;;(format t "last :~a~%" (last body))
+                     ;;`(:LDF ,(comp body new-env '(:RTN)) ,@c)
+                     `(:LDF ,(append (loop :for b :in (butlast body)
+                                        :append (comp b new-env ()))
+                                     (comp (car (last body)) new-env '(:RTN)))
+                            ,@c)
+                     ;; `(:LDF ,(append (loop :for b :in body
+                     ;;                    :append (comp b new-env ())) '(:RTN)) ,@c)
+                     ))
+
+                  ;; let
+                  (('let bindings . body)
+                   (let ((vars (mapcar #'car bindings))
+                         (inits (mapcar #'cadr bindings)))
+                     (comp `((lambda ,vars ,@body) ,@inits) env c)))
+                  ;; letrec
+                  (('letrec bindings . body)
+                   (let ((vars (mapcar #'car bindings))
+                         (inits (reverse (mapcar #'cadr bindings))))
+                     `(:DUM :NIL
+                            ,@(loop :for init :in inits :append (comp init (extend-env vars env) '(:CONS)))
+                            :LDF
+                            ,(loop :for b :in body :append (comp b (extend-env vars env) '(:RTN)))
+                            :RAP ,@c)))
+                  (('call/cc proc)
+                   (let ((*print-circle* t))
+                     (format t ";; comp call/cc exp = ~s~%" exp)
+                     (format t ";; comp call/cc c = ~s~%" c)
+                     (format t ";; comp call/cc proc = ~s~%" proc)
+                     (cond
+                       ((equal c '(:RTN))
+                        `(:LDCT (:RTN) ,@(comp proc env `(:TAP))))
+                       ((null c) ;; TODO 20100807
+                        (error "call/cc found null!"))
+                       ;;`(:LDCT (:STOP) ,@(comp proc env `(:AP)))
+                       (t
+                        `(:LDCT ,c ,@(comp proc env `(:AP ,@c)))))))
+                  ;;
+                  (('write obj)
+                   (comp obj env `(:WRITE ,@c)))
+                   
+                  (t  ;; (e ek ...)
+                   `(:NIL
+                     ,@(loop :for en :in (reverse (cdr exp)) :append (comp en env '(:CONS)))
+                     ,@(comp (car exp) env '(:AP)) ,@c))
+                  ))
+               ;; todo
+               (t
+                (error "compile-pass1 unknown expression: ~a" exp)))))
+    (comp exp env '(:STOP))))
+
+
+
+(defun comp (exp) (compile-pass1 exp nil))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; vector
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defun make-code-array ()
   "make array for code vector."
   (make-array 0 :adjustable t :fill-pointer 0))
@@ -106,7 +169,7 @@
          :for x = (aref vec i)
          :do (setf (aref vec i) (or (gethash x label-table) x)))
       (ecase (car program)
-        ((:NIL :AP :RTN :CONS :CAR :CDR :RAP :DUM :+ :- :* :> :< := :JOIN) ; no label
+        ((:NIL :AP :RTN :CONS :CAR :CDR :RAP :DUM :+ :- :* :> :< := :JOIN :STOP) ; no label
          (destructuring-bind (op . rest) program
            (append-code op vec)
            (compile-pass2 rest vec label-table)))
@@ -157,6 +220,6 @@
     (let ((vec (make-code-array))
           (ht (make-hash-table)))
       (compile-pass2 program-list vec ht)
-      (append-code :STOP vec)
+;;      (append-code :STOP vec)
       (make-array (length vec)
                   :initial-contents vec))))
