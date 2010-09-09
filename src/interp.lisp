@@ -1,8 +1,7 @@
 (in-package :secd.interp)
 
 ;; PAIP 9.2 Compiling One Language into Another
-(defstruct rule states lhs rhs var init-form rhs-action)
-
+(defstruct rule states lhs rhs var init-form lhs-states rhs-action)
 
 (defun collect-syms (lst)
   "collect state symbols."
@@ -42,6 +41,8 @@
                         (nth (+ 3 pos-where) transition))))
     (assert (and pos-arrow (> pos-arrow 0)) (pos-arrow) "compile-transition found invalid format: ~s" transition)
     (let ((rule (make-rule :states states :lhs lhs :rhs rhs :var var :init-form init-form)))
+      (setf (rule-lhs-states rule) (collect-syms (rule-lhs rule)))
+      ;; (format t "lhs-states: ~a~%" (rule-lhs-states rule))
       (labels ((state->cons (state)
              (if (consp state)
                  `(cons ,(state->cons (car state))
@@ -53,10 +54,21 @@
                        :unless (eql var form)
                        :append `(,var ,form))))
           (setf (rule-rhs-action rule)
-                (if (rule-var rule)
-                    `(let ((,(rule-var rule) ,(rule-init-form rule)))
-                       (psetq ,@body))
-                    `(psetq ,@body)))))
+                `(let ,(if (rule-var rule)
+                           `((,(rule-var rule) ,(rule-init-form rule)))
+                           ())
+                   ;;
+                   (when *secd-debug*
+                     (let ((*print-circle* t))
+                       (format t ";;;~%")
+                       (format t "STATE MATCH ~a  -> ~a~%" ',(rule-lhs rule) ',(rule-rhs rule))
+                       ,@(loop :for s :in (rule-lhs-states rule)
+                            :collect `(format t " ~a = ~s~%" ',s ,s))
+                       ,(when (rule-var rule)
+                              `(format t " RHS VAR ~a = ~s~%" ',(rule-var rule) ,(rule-var rule)))
+                       )
+                     )
+                   (psetq ,@body)))))
       rule)))
 
 (defun compile-transitions (states transitions)
@@ -179,39 +191,25 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
 (defgeneric secd-eval (fn exp)
   (:documentation "generic launcher."))
 
-;; new version.
+(defparameter *secd-debug* t)
+
 (defmacro deftransition (name (&rest states) &rest spec)
   "define secd machine."
   (let ((transitions (cdr (assoc :transitions spec)))
-        (last-value (assoc :last-value spec)))
+        (last-value (cadr (assoc :last-value spec))))
     (let* ((states (loop :for s :in states :collect (gensym (mkstr s))))
            (rules (mapcar #'(lambda (tr)
                               (compile-transition states tr)) transitions)))
-      (format t "rules = ~a~%" rules)
-    `(progn
-       (defun ,name (,@states)
-         ;;(declare (optimize (debug 0) (speed 3) (safety 0)))
-         ,(rules->match-n rules `(,name ,@states) (cadr last-value))
-         )))))
-
-;; (defmacro defsecd (name (&rest states) doc &rest definitions)
-;;   "define secd machine."
-;;   (let* ((syms (loop :for s :in states :collect (gensym (mkstr s))))
-;;          (rules (parse-rules syms definitions)))
-;;     `(progn
-;;        (defun ,name ,syms
-;;          ,doc
-;;          ;; (declare (optimize (debug 0) (speed 3) (safety 0)))
-;;          ;;(tagbody :loop
-;;          ;;   ,(rules->match-n rules '(go :loop)))
-
-;;          ;; ,(rules->match-n rules
-;;          ;;                  `(progn (format t "~s~%" (list ,@syms)) (,name ,@syms)))
-
-;;          ,(rules->match-n rules `(,name ,@syms))
-;;          ))))
-
-
+      (loop :for rule :in rules :for i :from 0
+         :do (format t "rule[~s] = ~s~%" i rule))
+      `(progn
+         ;(defparameter ,name ',rules)
+         (defun ,name (,@states)
+           ;;(declare (optimize (debug 0) (speed 3) (safety 0)))
+           (when *secd-debug*
+             (format t "STATE:~% S = ~s~% E = ~s~% C = ~s~% D = ~s~%" ,@states))
+           ,(rules->match-n rules `(,name ,@states) last-value))
+         (export ',name)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; stack
@@ -281,7 +279,6 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
 ;; 13
 ;; TEST> (comp '((lambda () 13)))
 ;; (:NIL :LDF (:LDC 13 :RTN) :AP :STOP)
-
 
 (defun foobar (s e c d)
   ;; :nil
