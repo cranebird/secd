@@ -74,20 +74,15 @@
 
    ( s e (:LDCT |c'| . c) d                      -> ( ((:cont s e |c'| . d)) . s) e c d )
 
-   ( (b a . s) e (:CONS . c) d                   -> ((a . b) . s) e c d )
+   ( (b a . s) e (:CONS . c) d                   -> ((b . a) . s) e c d )
 
    ( ((a . b) . s) e (:CAR . c) d                -> (a . s) e c d )
    ( ((a . b) . s) e (:CDR . c) d                -> (b . s) e c d )
    ( (x . s) e (:CONSP . c) d                    -> (p . s) e c d where p = (consp x) )
-
-
    ( (x . z) |e'| (:RTN . |c'|) (s e c . d)      -> (x . s) e c d )
    ( s e (:DUM . c) d                            -> s (nil . e) c d)
-   
    ( ((:clos |c'| . |e'|) v . s) (nil . e) (:RAP . c) d -> nil |e''| |c'| (s e c . d) where |e''| = (rplaca |e'| v))
-
    ( ((:clos |c'| . |e'|) v . s) (nil . e) (:RTAP . c) d -> nil |e''| |c'| d where |e''| = (rplaca |e'| v))
-   
    ( (b a . s) e (:+ . c) d                      -> (x . s) e c d where x = (+ a b) )
    ( (b a . s) e (:- . c) d                      -> (x . s) e c d where x = (- a b) )
    ( (b a . s) e (:* . c) d                      -> (x . s) e c d where x = (* a b) )
@@ -95,7 +90,6 @@
    ( (b a . s) e (:> . c) d                      -> (x . s) e c d where x = (> a b) )
    ( (b a . s) e (:< . c) d                      -> (x . s) e c d where x = (< a b) )
    ( (b a . s) e (:mod . c) d                    -> (x . s) e c d where x = (mod a b) )
-   
    ( (v . s) e (:VLEN . c) d                     -> (x . s) e c d where x = (length v))
    ( (l . s) e (:L2V . c) d                      -> (v . s) e c d where v = (make-vector l))
    ( (v n . s) e (:VREF . c) d                   -> (x . s) e c d where x = (aref v n))
