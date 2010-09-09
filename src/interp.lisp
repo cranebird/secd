@@ -42,12 +42,11 @@
     (assert (and pos-arrow (> pos-arrow 0)) (pos-arrow) "compile-transition found invalid format: ~s" transition)
     (let ((rule (make-rule :states states :lhs lhs :rhs rhs :var var :init-form init-form)))
       (setf (rule-lhs-states rule) (collect-syms (rule-lhs rule)))
-      ;; (format t "lhs-states: ~a~%" (rule-lhs-states rule))
       (labels ((state->cons (state)
-             (if (consp state)
-                 `(cons ,(state->cons (car state))
-                        ,(state->cons (cdr state)))
-                 state)))
+                 (if (consp state)
+                     `(cons ,(state->cons (car state))
+                            ,(state->cons (cdr state)))
+                     state)))
         (let ((body (loop :for var :in (rule-states rule)
                        :for rhs-state :in (rule-rhs rule)
                        :for form = (state->cons rhs-state)
@@ -57,7 +56,6 @@
                 `(let ,(if (rule-var rule)
                            `((,(rule-var rule) ,(rule-init-form rule)))
                            ())
-                   ;;
                    (when *secd-debug*
                      (let ((*print-circle* t))
                        (format t ";;;~%")
@@ -65,9 +63,7 @@
                        ,@(loop :for s :in (rule-lhs-states rule)
                             :collect `(format t " ~a = ~s~%" ',s ,s))
                        ,(when (rule-var rule)
-                              `(format t " RHS VAR ~a = ~s~%" ',(rule-var rule) ,(rule-var rule)))
-                       )
-                     )
+                              `(format t " RHS VAR ~a = ~s~%" ',(rule-var rule) ,(rule-var rule)))))
                    (psetq ,@body)))))
       rule)))
 
@@ -102,16 +98,6 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
   (declare (optimize (speed 3) (safety 0) (debug 0)))
   (declare (type fixnum m n ))
   (nth (the fixnum (1- n)) (nth (the fixnum (1- m)) e)))
-
-(declaim (inline locate2))
-(defun locate2 (m n e)
-  "faster locate"
-  (declare (optimize (speed 3) (safety 0) (debug 0) (space 0)))
-  (declare (type fixnum m n ))
-  (nth n (nth m e)))
-
-;; (defun locate (m n e) ;; for Common Lisp interpreter
-;;   (nth (1- n) (nth (1- m) e)))
 
 (defun make-vector (l)
   (apply #'vector l))
@@ -165,36 +151,15 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
           (hr))))))
 
 ;; todo place
-(defun opt (program)
-  (match program
-    (()
-     nil)
-;;    ((:LD (m . n))
-;;     `(:LD2 (,(1- m) . ,(1- n)))) ;; not work.
-    ((:AP :RTN)
-     `(:TAP))
-    ((:RAP :RTN)
-     `(:RTAP))
-    ((:SEL ct cf :RTN)
-     (if (and (equal (last ct) '(:JOIN)) (equal (last cf) '(:JOIN)))
-         (opt `(:SELR ,(opt (append (butlast ct) '(:RTN))) 
-                      ,(opt (append (butlast cf) '(:RTN)))))
-         `(:SEL ,(opt ct) ,(opt cf) :RTN)))
-    (t
-     (if (consp program)
-         (cons (opt (car program)) (opt (cdr program)))
-         program))))
+
 
 (defgeneric run (secd exp)
   (:documentation "generic launcher."))
 
-(defgeneric secd-eval (fn exp)
-  (:documentation "generic launcher."))
-
-(defparameter *secd-debug* t)
+(defparameter *secd-debug* nil)
 
 (defmacro deftransition (name (&rest states) &rest spec)
-  "define secd machine."
+  "define SECD machine."
   (let ((transitions (cdr (assoc :transitions spec)))
         (last-value (cadr (assoc :last-value spec))))
     (let* ((states (loop :for s :in states :collect (gensym (mkstr s))))
@@ -203,7 +168,7 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
       (loop :for rule :in rules :for i :from 0
          :do (format t "rule[~s] = ~s~%" i rule))
       `(progn
-         ;(defparameter ,name ',rules)
+         (defparameter ,name ',rules)
          (defun ,name (,@states)
            ;;(declare (optimize (debug 0) (speed 3) (safety 0)))
            (when *secd-debug*
@@ -211,94 +176,3 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
            ,(rules->match-n rules `(,name ,@states) last-value))
          (export ',name)))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; stack
-
-(defun pattern->cons (pattern)
-  "(a . b) => (cons a b)"
-  (if (consp pattern)
-      `(cons ,(pattern->cons (car pattern))
-             ,(pattern->cons (cdr pattern)))
-      pattern))
-
-(defun pattern->stack (pattern)
-  "(a . b) => "
-  (if (consp pattern)
-      `(cons ,(pattern->cons (car pattern))
-             ,(pattern->cons (cdr pattern)))
-      pattern))
-
-;;   ( s e (:LDC x . c) d                          -> (x . s) e c d )
-(defun secd-trans-stack (s e c d s0 e0 c0 d0 s1 e1 c1 d1)
-  (let ((body
-         (loop :for v :in (list s e c d)
-            :for x0 :in (list s0 e0 c0 d0)
-            :for x1 :in (list s1 e1 c1 d1)
-            ;;:unless (eql x0 x1)
-            :append
-            `(,v ,(pattern->stack x1)))))
-    `(progn ,@body)))
-
-(defmacro def-secd-stack-machine (name doc &rest rules)
-  "define secd stack machine."
-  (let ((s (gensym "S ")) (e (gensym "E ")) (c (gensym "C ")) (d (gensym "D "))
-        (exp (gensym "exp ")))
-    ;;(validate-rules rules)
-    ;;(gather-instructions rules)
-    `(progn
-       (defparameter ,name (describe-secd ',rules))
-       (defun ,name (,s ,e ,c ,d)
-         ,doc
-         (declare (optimize (debug 0) (speed 3) (safety 0)))
-         (tagbody
-          :loop
-            (match-n (,c ,s ,e ,d)
-              ,@(loop :for rule :in rules
-                   :collect
-                   (match rule
-                     ((s0 e0 c0 d0 :_ s1 e1 c1 d1 'where var '= init-form)
-                      `((,c0 ,s0 ,e0 ,d0)
-                        (let ((,var ,init-form))
-                          ,(secd-trans-stack s e c d s0 e0 c0 d0 s1 e1 c1 d1)
-                          (go :loop))))
-                     ((s0 e0 c0 d0 :_ s1 e1 c1 d1)
-                      `((,c0 ,s0 ,e0 ,d0)
-                        ,(secd-trans-stack s e c d s0 e0 c0 d0 s1 e1 c1 d1)
-                        (go :loop)))))))
-         (values (list ,s ,e ,c ,d) 'end))
-       (defmethod run ((secd (eql ,(as-keyword name))) ,exp)
-         (let ((,c (compile-pass1 ,exp ())))
-           (format t ";; code: ~s~%" ,c)
-           (,name ',s ',e ,c ',d)))
-       ',name)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;; compiled 
-;; TEST> (test-secd-eval '((lambda () 13)))
-;; 13
-;; TEST> (comp '((lambda () 13)))
-;; (:NIL :LDF (:LDC 13 :RTN) :AP :STOP)
-
-(defun foobar (s e c d)
-  ;; :nil
-  (setq s (cons nil s))
-  ;; :ldf
-  (setq s
-        (cons
-         #'(lambda ()
-             ;; :ldc 13
-             (setq s (cons 13 s))
-             ;; :rtn
-             (psetq s (cons (car d) (cdr s))
-                    e (cadr d)
-                    c (caddr d)
-                    d (cdddr d)))
-         e))
-  ;; :ap
-  ;; (psetq s nil
-  ;;        e (cons (cadr s) (cdar s))
-
-
-  )
-  
