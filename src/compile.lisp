@@ -58,31 +58,33 @@
                ((consp exp)
                 (match exp ;;
                   (('+ e1 e2)
-                   (comp e2 env (comp e1 env `(:+ ,@c))))
+                   (comp e1 env (comp e2 env `(:+ ,@c))))
                   (('- e1 e2)
-                   (comp e2 env (comp e1 env `(:- ,@c))))
+                   (comp e1 env (comp e2 env `(:- ,@c))))
                   (('* e1 e2)
-                   (comp e2 env (comp e1 env `(:* ,@c))))
+                   (comp e1 env (comp e2 env `(:* ,@c))))
                   (('> e1 e2)
-                   (comp e2 env (comp e1 env `(:> ,@c))))
+                   (comp e1 env (comp e2 env `(:> ,@c))))
                   (('< e1 e2)
-                   (comp e2 env (comp e1 env `(:< ,@c))))
+                   (comp e1 env (comp e2 env `(:< ,@c))))
                   (('= e1 e2)
-                   (comp e2 env (comp e1 env `(:= ,@c))))
+                   (comp e1 env (comp e2 env `(:= ,@c))))
                   (('mod e1 e2)
-                   (comp e2 env (comp e1 env `(:mod ,@c))))
+                   (comp e1 env (comp e2 env `(:mod ,@c))))
                   ;; cons cell
                   (('cons e1 e2)
-                   (comp e2 env (comp e1 env `(:CONS ,@c))))
-                  (('car e1 e2)
-                   (comp e2 env (comp e1 env `(:CAR ,@c))))
-                  (('cdr e1 e2)
-                   (comp e2 env (comp e1 env `(:CDR ,@c))))
+                   (comp e1 env (comp e2 env `(:CONS ,@c))))
+                  (('car e1)
+                   (comp e1 env `(:CAR ,@c)))
+                  (('cdr e1)
+                   (comp e1 env `(:CDR ,@c)))
+                  (('consp e1)
+                   (comp e1 env `(:CONSP ,@c)))
                   ;; vector
                   (('vector-length e1)
                    (comp e1 env `(:VLEN ,@c)))
                   (('vector . rest) ;; (vector e1 e2 ...)
-                   `(:NIL ,@(loop :for e :in (reverse rest)
+                   `(:NIL ,@(loop :for e :in rest
                                :append (comp e env '(:CONS))) :L2V ,@c))
                   (('vector-ref vec n) ;; (vector-ref vec n)
                     (comp vec env (comp n env `(:VREF ,@c))))
@@ -94,17 +96,10 @@
                   ;; lambda
                   (('lambda plist . body)
                    (let ((new-env (extend-env plist env)))
-                     ;;(format t "butlast :~a~%" (butlast body))
-                     ;;(format t "last :~a~%" (last body))
-                     ;;`(:LDF ,(comp body new-env '(:RTN)) ,@c)
                      `(:LDF ,(append (loop :for b :in (butlast body)
                                         :append (comp b new-env ()))
                                      (comp (car (last body)) new-env '(:RTN)))
-                            ,@c)
-                     ;; `(:LDF ,(append (loop :for b :in body
-                     ;;                    :append (comp b new-env ())) '(:RTN)) ,@c)
-                     ))
-
+                            ,@c)))
                   ;; let
                   (('let bindings . body)
                    (let ((vars (mapcar #'car bindings))
@@ -113,7 +108,7 @@
                   ;; letrec
                   (('letrec bindings . body)
                    (let ((vars (mapcar #'car bindings))
-                         (inits (reverse (mapcar #'cadr bindings))))
+                         (inits (mapcar #'cadr bindings)))
                      `(:DUM :NIL
                             ,@(loop :for init :in inits :append (comp init (extend-env vars env) '(:CONS)))
                             :LDF
@@ -121,9 +116,9 @@
                             :RAP ,@c)))
                   (('call/cc proc)
                    (let ((*print-circle* t))
-                     (format t ";; comp call/cc exp = ~s~%" exp)
-                     (format t ";; comp call/cc c = ~s~%" c)
-                     (format t ";; comp call/cc proc = ~s~%" proc)
+                     ;;(format t ";; comp call/cc exp = ~s~%" exp)
+                     ;;(format t ";; comp call/cc c = ~s~%" c)
+                     ;;(format t ";; comp call/cc proc = ~s~%" proc)
                      (cond
                        ((equal c '(:RTN))
                         `(:LDCT (:RTN) ,@(comp proc env `(:TAP))))
@@ -138,14 +133,13 @@
                    
                   (t  ;; (e ek ...)
                    `(:NIL
-                     ,@(loop :for en :in (reverse (cdr exp)) :append (comp en env '(:CONS)))
+                     ,@(loop :for en :in (cdr exp) :append (comp en env '(:CONS)))
                      ,@(comp (car exp) env '(:AP)) ,@c))
                   ))
                ;; todo
                (t
                 (error "compile-pass1 unknown expression: ~a" exp)))))
     (comp exp env '(:STOP))))
-
 
 
 (defun comp (exp) (compile-pass1 exp nil))
