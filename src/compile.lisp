@@ -7,7 +7,7 @@
 ;; (http://www.cs.ualberta.ca/~you/courses/325/Mynotes/Fun/SECD-slides.html)
 ;; And LispMe.
 
-(in-package :secd.compile)
+(in-package :secd)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (set-scm-macro-character))
@@ -39,115 +39,98 @@
 ;;; Compiler
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defun instruction-p (x) (keywordp x))
 
+(defun comp (exp env c)
+  "Compile an expression."
+  (cond
+    ((null exp) c)
+    ((numberp exp) (comp () env `(:LDC ,exp ,@c)))
+    ((eql exp #t) (comp () env `(:LDC #t ,@c)))
+    ((eql exp #f) (comp () env `(:LDC #f ,@c)))
+    ;; Variable references
+    ((symbolp exp) (comp () env `(:LD ,(lookup exp env) ,@c)))
+    ((consp exp)
+     (match exp
+       ;; Procedures
+       (('lambda <formals> . <body>)
+        (let ((new-env (extend-env <formals> env)))
+          `(:LDF ,(append (loop :for b :in (butlast <body>) :append (comp b new-env ()))
+                          (comp (car (last <body>)) new-env '(:RTN)))
+                 ,@c)))
+       ;; Conditionals
+       (('if <test> <consequent> <alternate>)
+        (let ((ct (comp <consequent> env '(:JOIN)))
+              (cf (comp <alternate> env '(:JOIN))))
+          (comp <test> env `(:SEL ,ct ,cf ,@c))))
+       ;; Assignments
+       (('set! <variable> <expression>)
+        (comp <expression> env `(:SET ,(lookup <variable> env) ,@c)))
+       ;; Binding Constructs
+       (('let <bindings> . <body>)
+        (let ((vars (mapcar #'car <bindings>))
+              (inits (mapcar #'cadr <bindings>)))
+          (comp `((lambda ,vars ,@<body>) ,@inits) env c)))
+       (('letrec <bindings> . <body>)
+        (let ((vars (mapcar #'car <bindings>))
+              (inits (mapcar #'cadr <bindings>)))
+          `(:DUM :NIL
+                 ,@(loop :for init :in inits :append (comp init (extend-env vars env) '(:CONS)))
+                 :LDF
+                 ,(append (loop :for b :in (butlast <body>) :append (comp b (extend-env vars env) ()))
+                          (comp (car (last <body>)) (extend-env vars env) '(:RTN)))
+                 :RAP ,@c)))
+       ;; Numerical operations
+       (('+ z1 z2) (comp z2 env (comp z1 env `(:+ ,@c))))
+       (('- z1 z2) (comp z2 env (comp z1 env `(:- ,@c))))
+       (('* z1 z2) (comp z2 env (comp z1 env `(:* ,@c))))
+       (('> z1 z2) (comp z2 env (comp z1 env `(:> ,@c))))
+       (('>= z1 z2) (comp z2 env (comp z1 env `(:>= ,@c))))
+       (('< z1 z2) (comp z2 env (comp z1 env `(:< ,@c))))
+       (('<= z1 z2) (comp z2 env (comp z1 env `(:<= ,@c))))
+       (('= z1 z2) (comp z2 env (comp z1 env `(:= ,@c))))
+       (('mod z1 z2) (comp z2 env (comp z1 env `(:mod ,@c))))
+       ;; Pair and lists
+       (('cons obj1 obj2) (comp obj2 env (comp obj1 env `(:CONS ,@c))))
+       (('car pair) (comp pair env `(:CAR ,@c)))
+       (('cdr pair) (comp pair env `(:CDR ,@c)))
+       (('consp obj) (comp obj env `(:CONSP ,@c)))
+       (('pair? obj) (comp obj env `(:CONSP ,@c)))
+       ;; Vectors
+       (('vector-length e1) (comp e1 env `(:VLEN ,@c)))
+       (('vector . rest)
+        `(:NIL ,@(loop :for e :in (reverse rest) :append (comp e env '(:CONS))) :L2V ,@c))
+       (('vector-ref vec n) ;; (vector-ref vec n)
+        (comp vec env (comp n env `(:VREF ,@c))))
+       (('vector-set! vec n obj) ;; (vector-set! vec n obj)
+        (comp vec env (comp n env (comp obj env `(:VSET ,@c)))))
+       ;; Control features
+       (('call/cc proc)
+        (cond
+          ((null c) (error "call/cc found null!"))
+          ((equal c '(:RTN)) `(:LDCT (:RTN) ,@(comp proc env `(:TAP))))
+          (t
+           `(:LDCT ,c ,@(comp proc env `(:AP ,@c))))))
+       ;; Input and Output
+       (('write obj)
+        (comp obj env `(:WRITE ,@c)))
+       
+       (t  ;; (e ek ...)
+        `(:NIL
+          ,@(loop :for en :in (reverse (cdr exp)) :append (comp en env '(:CONS)))
+          ,@(comp (car exp) env '(:AP)) ,@c))
+       ))
+    ;; todo
+    (t
+     (error "compile-pass1 unknown expression: ~a" exp))))
+
 (defun compile-pass1 (exp &optional env)
-  "Compile s-expression EXP in environment ENV."
-  (labels ((comp (exp env c)
-             (cond
-               ((null exp)
-                c)
-               ((numberp exp)
-                (comp () env `(:LDC ,exp ,@c)))
-               ((eql exp #t)
-                (comp () env `(:LDC #t ,@c)))
-               ((eql exp #f) 
-                (comp () env `(:LDC #f ,@c)))
-               ((symbolp exp)
-                (comp () env `(:LD ,(lookup exp env) ,@c)))
-               ((consp exp)
-                (match exp
-                  ;; math
-                  (('+ z1 z2)
-                   (comp z2 env (comp z1 env `(:+ ,@c))))
-                  (('- z1 z2)
-                   (comp z2 env (comp z1 env `(:- ,@c))))
-                  (('* z1 z2)
-                   (comp z2 env (comp z1 env `(:* ,@c))))
-                  (('> z1 z2)
-                   (comp z2 env (comp z1 env `(:> ,@c))))
-                  (('>= z1 z2)
-                   (comp z2 env (comp z1 env `(:>= ,@c))))
-                  (('< z1 z2)
-                   (comp z2 env (comp z1 env `(:< ,@c))))
-                  (('<= z1 z2)
-                   (comp z2 env (comp z1 env `(:<= ,@c))))
-                  (('= z1 z2)
-                   (comp z2 env (comp z1 env `(:= ,@c))))
-                  (('mod z1 z2)
-                   (comp z2 env (comp z1 env `(:mod ,@c))))
-                  ;; cons cell
-                  (('cons obj1 obj2)
-                   (comp obj2 env (comp obj1 env `(:CONS ,@c))))
-                  (('car pair)
-                   (comp pair env `(:CAR ,@c)))
-                  (('cdr pair)
-                   (comp pair env `(:CDR ,@c)))
-                  (('consp obj)
-                   (comp obj env `(:CONSP ,@c)))
-                  (('pair? obj)
-                   (comp obj env `(:CONSP ,@c)))
-                  ;; set!
-                  (('set! <variable> <expression>)
-                   (comp <expression> env `(:SET ,(lookup <variable> env) ,@c)))
-                  ;; vector
-                  (('vector-length e1)
-                   (comp e1 env `(:VLEN ,@c)))
-                  (('vector . rest) ;; (vector e1 e2 ...)
-                   `(:NIL ,@(loop :for e :in (reverse rest)
-                               :append (comp e env '(:CONS))) :L2V ,@c))
-                  (('vector-ref vec n) ;; (vector-ref vec n)
-                   (comp vec env (comp n env `(:VREF ,@c))))
-                  (('vector-set! vec n obj) ;; (vector-set! vec n obj)
-                   (comp vec env (comp n env (comp obj env `(:VSET ,@c)))))
-                  ;; if
-                  (('if <test> <consequent> <alternate>)
-                   (comp <test> env `(:SEL ,(comp <consequent> env '(:JOIN)) ,(comp <alternate> env '(:JOIN)) ,@c)))
-                  ;; lambda
-                  (('lambda <formals> . <body>)
-                   (let ((new-env (extend-env <formals> env)))
-                     `(:LDF ,(append (loop :for b :in (butlast <body>) :append (comp b new-env ()))
-                                     (comp (car (last <body>)) new-env '(:RTN)))
-                            ,@c)))
-                  ;; let
-                  (('let <bindings> . <body>)
-                   (let ((vars (mapcar #'car <bindings>))
-                         (inits (mapcar #'cadr <bindings>)))
-                     (comp `((lambda ,vars ,@<body>) ,@inits) env c)))
-                  ;; letrec
-                  (('letrec <bindings> . <body>)
-                   (let ((vars (mapcar #'car <bindings>))
-                         (inits (mapcar #'cadr <bindings>)))
-                     `(:DUM :NIL
-                            ,@(loop :for init :in inits :append (comp init (extend-env vars env) '(:CONS)))
-                            :LDF
-                            ,(append (loop :for b :in (butlast <body>) :append (comp b (extend-env vars env) ()))
-                                     (comp (car (last <body>)) (extend-env vars env) '(:RTN)))
-                            :RAP ,@c)))
-                  (('call/cc proc)
-                   (cond
-                     ((null c)
-                      (error "call/cc found null!"))
-                     ((equal c '(:RTN))
-                      `(:LDCT (:RTN) ,@(comp proc env `(:TAP))))
-                     (t
-                      `(:LDCT ,c ,@(comp proc env `(:AP ,@c))))))
-                  ;;
-                  (('write obj)
-                   (comp obj env `(:WRITE ,@c)))
-                  
-                  (t  ;; (e ek ...)
-                   `(:NIL
-                     ,@(loop :for en :in (reverse (cdr exp)) :append (comp en env '(:CONS)))
-                     ,@(comp (car exp) env '(:AP)) ,@c))
-                  ))
-               ;; todo
-               (t
-                (error "compile-pass1 unknown expression: ~a" exp)))))
-    (comp exp env '(:STOP))))
+  "Compile an s-expression into a list of instructions in an environment ENV. "
+  (comp exp env '(:STOP)))
 
 (defun opt (program)
-  "optimize compiled code."
+  "Optimize compiled code."
   (match program
     (()
      nil)
@@ -164,14 +147,7 @@
      (if (consp program)
          (cons (opt (car program)) (opt (cdr program)))
          program))))
-
-(defun comp (exp &optional (optimize t))
-  ""
-  (let ((program (compile-pass1 exp nil)))
-    (if optimize
-        (opt program)
-        program)))
-    
+  
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Compiler vector version
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
