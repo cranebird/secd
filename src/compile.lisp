@@ -21,13 +21,13 @@
 ;; (lookup 'a ( ((a . 1) (b . 2)))) => (1 . 1) =(level 1, 1st)
 ;; (lookup 'b ( ((a . 1) (b . 2)))) => (1 . 2) =(level 1, 2nd)
 ;; (lookup 'c '(((a . 1) (b . 2)) ((c . 1) (b . 2)))) => (2 .1) = (level2, 1st)
+
 (defun lookup (var env)
   "Lookup the variable VAR in environment ENV in compile time."
   (loop :for e :in env :for level :from 1
      :if (assoc var e)
      :return (cons level (cdr (assoc var e)))
-     :finally
-     (error "fail to lookup ~a in ~a" var env)))
+     :finally (error "fail to lookup ~a in ~a" var env)))
 
 (defun extend-env (plist env)
   "Extend environment in compile time."
@@ -56,34 +56,40 @@
                ((symbolp exp)
                 (comp () env `(:LD ,(lookup exp env) ,@c)))
                ((consp exp)
-                (match exp ;;
-                  (('+ e1 e2)
-                   (comp e2 env (comp e1 env `(:+ ,@c))))
-                  (('- e1 e2)
-                   (comp e2 env (comp e1 env `(:- ,@c))))
-                  (('* e1 e2)
-                   (comp e2 env (comp e1 env `(:* ,@c))))
-                  (('> e1 e2)
-                   (comp e2 env (comp e1 env `(:> ,@c))))
-                  (('>= e1 e2)
-                   (comp e2 env (comp e1 env `(:>= ,@c))))
-                  (('< e1 e2)
-                   (comp e2 env (comp e1 env `(:< ,@c))))
-                  (('<= e1 e2)
-                   (comp e2 env (comp e1 env `(:<= ,@c))))
-                  (('= e1 e2)
-                   (comp e2 env (comp e1 env `(:= ,@c))))
-                  (('mod e1 e2)
-                   (comp e2 env (comp e1 env `(:mod ,@c))))
+                (match exp
+                  ;; math
+                  (('+ z1 z2)
+                   (comp z2 env (comp z1 env `(:+ ,@c))))
+                  (('- z1 z2)
+                   (comp z2 env (comp z1 env `(:- ,@c))))
+                  (('* z1 z2)
+                   (comp z2 env (comp z1 env `(:* ,@c))))
+                  (('> z1 z2)
+                   (comp z2 env (comp z1 env `(:> ,@c))))
+                  (('>= z1 z2)
+                   (comp z2 env (comp z1 env `(:>= ,@c))))
+                  (('< z1 z2)
+                   (comp z2 env (comp z1 env `(:< ,@c))))
+                  (('<= z1 z2)
+                   (comp z2 env (comp z1 env `(:<= ,@c))))
+                  (('= z1 z2)
+                   (comp z2 env (comp z1 env `(:= ,@c))))
+                  (('mod z1 z2)
+                   (comp z2 env (comp z1 env `(:mod ,@c))))
                   ;; cons cell
-                  (('cons e1 e2)
-                   (comp e2 env (comp e1 env `(:CONS ,@c))))
-                  (('car e1)
-                   (comp e1 env `(:CAR ,@c)))
-                  (('cdr e1)
-                   (comp e1 env `(:CDR ,@c)))
-                  (('consp e1)
-                   (comp e1 env `(:CONSP ,@c)))
+                  (('cons obj1 obj2)
+                   (comp obj2 env (comp obj1 env `(:CONS ,@c))))
+                  (('car pair)
+                   (comp pair env `(:CAR ,@c)))
+                  (('cdr pair)
+                   (comp pair env `(:CDR ,@c)))
+                  (('consp obj)
+                   (comp obj env `(:CONSP ,@c)))
+                  (('pair? obj)
+                   (comp obj env `(:CONSP ,@c)))
+                  ;; set!
+                  (('set! <variable> <expression>)
+                   (comp <expression> env `(:SET ,(lookup <variable> env) ,@c)))
                   ;; vector
                   (('vector-length e1)
                    (comp e1 env `(:VLEN ,@c)))
@@ -91,45 +97,45 @@
                    `(:NIL ,@(loop :for e :in (reverse rest)
                                :append (comp e env '(:CONS))) :L2V ,@c))
                   (('vector-ref vec n) ;; (vector-ref vec n)
-                    (comp vec env (comp n env `(:VREF ,@c))))
+                   (comp vec env (comp n env `(:VREF ,@c))))
                   (('vector-set! vec n obj) ;; (vector-set! vec n obj)
                    (comp vec env (comp n env (comp obj env `(:VSET ,@c)))))
                   ;; if
-                  (('if e1 ct cf)
-                   (comp e1 env `(:SEL ,(comp ct env '(:JOIN)) ,(comp cf env '(:JOIN)) ,@c)))
+                  (('if <test> <consequent> <alternate>)
+                   (comp <test> env `(:SEL ,(comp <consequent> env '(:JOIN)) ,(comp <alternate> env '(:JOIN)) ,@c)))
                   ;; lambda
-                  (('lambda plist . body)
-                   (let ((new-env (extend-env plist env)))
-                     `(:LDF ,(append (loop :for b :in (butlast body) :append (comp b new-env ()))
-                                     (comp (car (last body)) new-env '(:RTN)))
+                  (('lambda <formals> . <body>)
+                   (let ((new-env (extend-env <formals> env)))
+                     `(:LDF ,(append (loop :for b :in (butlast <body>) :append (comp b new-env ()))
+                                     (comp (car (last <body>)) new-env '(:RTN)))
                             ,@c)))
                   ;; let
-                  (('let bindings . body)
-                   (let ((vars (mapcar #'car bindings))
-                         (inits (mapcar #'cadr bindings)))
-                     (comp `((lambda ,vars ,@body) ,@inits) env c)))
+                  (('let <bindings> . <body>)
+                   (let ((vars (mapcar #'car <bindings>))
+                         (inits (mapcar #'cadr <bindings>)))
+                     (comp `((lambda ,vars ,@<body>) ,@inits) env c)))
                   ;; letrec
-                  (('letrec bindings . body)
-                   (let ((vars (mapcar #'car bindings))
-                         (inits (mapcar #'cadr bindings)))
+                  (('letrec <bindings> . <body>)
+                   (let ((vars (mapcar #'car <bindings>))
+                         (inits (mapcar #'cadr <bindings>)))
                      `(:DUM :NIL
                             ,@(loop :for init :in inits :append (comp init (extend-env vars env) '(:CONS)))
                             :LDF
-                            ,(append (loop :for b :in (butlast body) :append (comp b (extend-env vars env) ()))
-                                     (comp (car (last body)) (extend-env vars env) '(:RTN)))
+                            ,(append (loop :for b :in (butlast <body>) :append (comp b (extend-env vars env) ()))
+                                     (comp (car (last <body>)) (extend-env vars env) '(:RTN)))
                             :RAP ,@c)))
                   (('call/cc proc)
                    (cond
-                       ((equal c '(:RTN))
-                        `(:LDCT (:RTN) ,@(comp proc env `(:TAP))))
-                       ((null c)
-                        (error "call/cc found null!"))
-                       (t
-                        `(:LDCT ,c ,@(comp proc env `(:AP ,@c))))))
+                     ((null c)
+                      (error "call/cc found null!"))
+                     ((equal c '(:RTN))
+                      `(:LDCT (:RTN) ,@(comp proc env `(:TAP))))
+                     (t
+                      `(:LDCT ,c ,@(comp proc env `(:AP ,@c))))))
                   ;;
                   (('write obj)
                    (comp obj env `(:WRITE ,@c)))
-                   
+                  
                   (t  ;; (e ek ...)
                    `(:NIL
                      ,@(loop :for en :in (reverse (cdr exp)) :append (comp en env '(:CONS)))
@@ -160,13 +166,14 @@
          program))))
 
 (defun comp (exp &optional (optimize t))
+  ""
   (let ((program (compile-pass1 exp nil)))
     (if optimize
         (opt program)
         program)))
     
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; vector
+;; Compiler vector version
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defun make-code-array ()
   "make array for code vector."
