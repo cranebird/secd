@@ -25,6 +25,11 @@
   `(let ,(loop :for n :in names :collect `(,n (gensym)))
      ,@body))
 
+(defmacro labeled-time (form)
+  `(progn
+     (format *trace-output* "~2&~a" ',form)
+     (time ,form)))
+
 ;; "Let Over Lambda" Macros
 
 (defun mkstr (&rest args)
