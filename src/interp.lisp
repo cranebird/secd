@@ -167,8 +167,6 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
     (let* ((states (loop :for s :in states :collect (gensym (mkstr s))))
            (rules (compile-transitions states transitions))
            (desc (describe-secd rules)))
-      ;;(loop :for rule :in rules :for i :from 0
-      ;;   :do (format t "rule[~s] = ~s~%" i rule))
       `(progn
          (format t ";; ~a transition~%~a~%" ',name ,desc)
          (defun ,name (,@states)
