@@ -1,14 +1,14 @@
-(in-package :secd.interp)
+(in-package :secd)
 
 ;; PAIP 9.2 Compiling One Language into Another
 (defstruct rule states lhs rhs var init-form lhs-states rhs-action)
 
 (defun collect-syms (lst)
-  "collect state symbols."
+  "Collect state symbols."
   (remove-if #'instruction-p (remove-duplicates (flatten lst))))
 
 (defun valid-rule (rule)
-  "validate a rule structure."
+  "Validate a rule structure."
   (let ((lhs-syms (collect-syms (if (rule-var rule)
                                     (append (rule-lhs rule) (rule-var rule))
                                     (rule-lhs rule))))
@@ -16,7 +16,7 @@
     (null (set-difference rhs-syms lhs-syms))))
 
 (defun validate-rules (rules)
-  "validate list of rule structure."
+  "Validate list of rule structure."
   (and (every #'valid-rule rules)
        (loop :for rule :in rules
           :for lhs = (rule-lhs rule)
@@ -30,7 +30,7 @@
               (return (values nil duplicate-lhs))))))
 
 (defun compile-transition (states transition)
-  "compile transition into rule structure."
+  "Compile a transition into a rule structure."
   (let* ((pos-arrow (position '-> transition :test #'equal))
          (pos-where (position 'where transition :test #'equal))
          (lhs (subseq transition 0 pos-arrow))
@@ -94,10 +94,16 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
 
 (declaim (inline locate))
 
-(defun locate (m n e) ;; for Common Lisp interpreter
+;; for Common Lisp interpreter
+(defun locate (m n e)
   (declare (optimize (speed 3) (safety 0) (debug 0)))
   (declare (type fixnum m n ))
   (nth (the fixnum (1- n)) (nth (the fixnum (1- m)) e)))
+
+(defun (setf locate) (var m n e)
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
+  (declare (type fixnum m n ))
+  (setf (nth (the fixnum (1- n)) (nth (the fixnum (1- m)) e)) var))
 
 (defun make-vector (l)
   (apply #'vector l))
@@ -125,7 +131,7 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
        :finally (return (mapcar (lambda (n) (+ margin n)) (list s0w e0w c0w d0w s1w e1w c1w d1w))))))
 
 (defun describe-secd (rules)
-  "describe secd rules"
+  "Describe secd rules."
   (with-output-to-string (out)
     (destructuring-bind  (s0w e0w c0w d0w s1w e1w c1w d1w)
         (max-rule-width rules)
@@ -150,16 +156,10 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
                         s0w s0 e0w e0 c0w c0 d0w d0 s1w s1 e1w e1 c1w c1 d1w d1))))
           (hr))))))
 
-;; todo place
-
-
-(defgeneric run (secd exp)
-  (:documentation "generic launcher."))
-
 (defparameter *secd-debug* nil)
 
 (defmacro deftransition (name (&rest states) &rest spec)
-  "define SECD machine."
+  "Define a SECD machine."
   (let ((transitions (cdr (assoc :transitions spec)))
         (last-value (cadr (assoc :last-value spec))))
     (let* ((states (loop :for s :in states :collect (gensym (mkstr s))))
@@ -168,7 +168,7 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
       (loop :for rule :in rules :for i :from 0
          :do (format t "rule[~s] = ~s~%" i rule))
       `(progn
-         (defparameter ,name ',rules)
+         ;(defparameter ,name ',rules)
          (defun ,name (,@states)
            ;;(declare (optimize (debug 0) (speed 3) (safety 0)))
            (when *secd-debug*
