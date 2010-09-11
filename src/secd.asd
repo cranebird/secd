@@ -13,7 +13,7 @@
                ;; (:file "vecinterp" :depends-on ("package" "util"  "compile" "match" "interp"))
                ;;(:file "defmachine" :depends-on ("package" "util" "compile" "interp"))
                (:file "defsecd" :depends-on ("package" "util" "compile" "interp"))
-               (:file "test-basic" :depends-on ("package" "util" "compile" "vm"))
+               (:file "test-basic" :depends-on ("package" "util" "compile"))
 
 ;; TODO; not implemented yet.               
                ;; (:file "vm" :depends-on ("package" "util"))
