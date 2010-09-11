@@ -64,8 +64,7 @@
            ))
 
 (defpackage :secd
-  (:use :common-lisp :secd.util :secd.vm :asdf :com.gigamonkeys.test)
-  )
+  (:use :common-lisp :secd.util :secd.vm :asdf :com.gigamonkeys.test))
 
 (defpackage :secd.test
-  (:use :common-lisp :secd :secd.interp :com.gigamonkeys.test))
+  (:use :common-lisp :secd :com.gigamonkeys.test))
