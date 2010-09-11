@@ -47,4 +47,4 @@
    ( (v n x . s) e (:VSET . c) d                 -> (v . s) e c d where v = (progn (setf (aref v n) x) v))
    ( (x . s) e (:WRITE . c) d                    -> s e c d where dum = (format t ";; ~s~%" x) ))
   (:last-value
-   (lambda (s e c d) (car s))))
+   (lambda (s e c d) (if (consp s) (car s)))))
