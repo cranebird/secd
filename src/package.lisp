@@ -1,22 +1,32 @@
+(in-package "COMMON-LISP-USER")
+
 (defpackage :secd.util
   (:use :common-lisp)
   (:export :set-scm-macro-character :as-keyword :with-gensyms
-           :mkstr :symb :group :flatten :single?))
+           :mkstr :symb :group :flatten :single? :labeled-time
+           :match :match-n))
 
-(defpackage :secd.compile
-  (:use :common-lisp :secd.util)
-  (:export :extend-env :lookup :compile-exp
-           :compile-pass1
-           :compile-pass2
-           :letrec
-           ))
+;; (defpackage :secd.compile
+;;   (:use :common-lisp :secd.util)
+;;   (:export :extend-env :lookup :compile-exp
+;;            :compile-pass1
+;;            :compile-pass2
+;;            :opt
+;;            :instruction-p
+;;            ;; scheme symbol
+;;            :letrec
+;;            :vector-length
+;;            :vector-ref
+;;            :vector-set!
+;;            :vector
+;;            :call/cc
+;;            :set!
+;;            :pair?
+;;            ))
 
-(defpackage :secd.match
-  (:use :common-lisp :secd.util)
-  (:export :match))
-
-(defpackage :secd.interp
-  (:use :common-lisp :secd.util :secd.compile :secd.match))
+;; (defpackage :secd.interp
+;;   (:use :common-lisp :secd.util :com.gigamonkeys.test)
+;;   (:export :*secd-debug*))
 
 (defpackage :secd.vm
   (:use :common-lisp :secd.util)
@@ -54,8 +64,8 @@
            ))
 
 (defpackage :secd
-  (:use :common-lisp :secd.util :secd.compile :secd.vm :secd.match :asdf :com.gigamonkeys.test)
+  (:use :common-lisp :secd.util :secd.vm :asdf :com.gigamonkeys.test)
   )
 
 (defpackage :secd.test
-  (:use :common-lisp :secd))
+  (:use :common-lisp :secd :secd.interp :com.gigamonkeys.test))
