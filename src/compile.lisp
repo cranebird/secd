@@ -55,10 +55,17 @@
      (match exp
        ;; Procedures
        (('lambda <formals> . <body>)
+        ;; todo 20100922
         (let ((new-env (extend-env <formals> env)))
           `(:LDF ,(append (loop :for b :in (butlast <body>) :append (comp b new-env ()))
                           (comp (car (last <body>)) new-env '(:RTN)))
-                 ,@c)))
+                 ,@c))
+
+        ;; better?? 20100922
+        ;; (let ((new-env (extend-env <formals> env)))
+        ;;   `(:LDF ,(comp <body> new-env '(:RTN))
+        ;;          ,@c))
+        )
        ;; Conditionals
        (('if <test> <consequent> <alternate>)
         (let ((ct (comp <consequent> env '(:JOIN)))
@@ -71,6 +78,8 @@
        (('let <bindings> . <body>)
         (let ((vars (mapcar #'car <bindings>))
               (inits (mapcar #'cadr <bindings>)))
+          (format t ";; let convert~%")
+          (format t ";; ~a~%" `((lambda ,vars ,@<body>) ,@inits))
           (comp `((lambda ,vars ,@<body>) ,@inits) env c)))
        (('letrec <bindings> . <body>)
         (let ((vars (mapcar #'car <bindings>))
@@ -111,15 +120,30 @@
           ((null c) (error "call/cc found null!"))
           ((equal c '(:RTN)) `(:LDCT (:RTN) ,@(comp proc env `(:TAP))))
           (t
+           (format t ";; call/cc c=~a~%" c)
+           (format t ";; call/cc exp=~a~%" exp)
            `(:LDCT ,c ,@(comp proc env `(:AP ,@c))))))
+       ;; (('call/cc proc)
+       ;;  (cond
+       ;;    ((null c) (error "call/cc found null!"))
+       ;;    ((equal c '(:RTN)) `(:LDCT (:RTN) ,@(comp proc env `(:TAP))))
+       ;;    (t
+       ;;     (format t ";; call/cc c=~a~%" c)
+       ;;     (format t ";; call/cc exp=~a~%" exp)
+       ;;     `(:LDCT ,c ,@(comp proc env `(:AP ,@c))))))
        ;; Input and Output
        (('write obj)
         (comp obj env `(:WRITE ,@c)))
-       
-       (t  ;; (e ek ...)
+       (t
         `(:NIL
           ,@(loop :for en :in (reverse (cdr exp)) :append (comp en env '(:CONS)))
-          ,@(comp (car exp) env '(:AP)) ,@c))
+          ,@(comp (car exp) env '(:AP)) ,@c)
+        ;; (if (atom (car exp)) ;; (e ek ...)
+        ;;     `(:NIL
+        ;;       ,@(loop :for en :in (reverse (cdr exp)) :append (comp en env '(:CONS)))
+        ;;       ,@(comp (car exp) env '(:AP)) ,@c)
+        ;;     (comp (car exp) env (cdr exp)))
+        )
        ))
     ;; todo
     (t
