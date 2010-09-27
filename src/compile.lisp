@@ -55,16 +55,24 @@
      (match exp
        ;; Procedures
        (('lambda <formals> . <body>)
-        ;; todo 20100922
+
         (let ((new-env (extend-env <formals> env)))
-          `(:LDF ,(append (loop :for b :in (butlast <body>) :append (comp b new-env ()))
-                          (comp (car (last <body>)) new-env '(:RTN)))
+          `(:LDF ,(reduce #'(lambda (e cont)
+                              (comp e new-env cont)) <body> :from-end t :initial-value '(:RTN))
                  ,@c))
 
-        ;; better?? 20100922
         ;; (let ((new-env (extend-env <formals> env)))
-        ;;   `(:LDF ,(comp <body> new-env '(:RTN))
+        ;;   `(:LDF ,(append (loop :for b :in <body> :append (comp b new-env ())) '(:RTN))
         ;;          ,@c))
+
+        ;; ok but not clean
+        ;; (let ((new-env (extend-env <formals> env)))
+        ;;   `(:LDF ,(append (loop :for b :in (butlast <body>) :append (comp b new-env ()))
+        ;;                   (comp (car (last <body>)) new-env '(:RTN)))
+        ;;          ,@c))
+        ;;better but fail w/ letrec?? 20100922 20100924
+        ;; (let ((new-env (extend-env <formals> env)))
+        ;;   `(:LDF ,(comp <body> new-env '(:RTN)) ,@c))
         )
        ;; Conditionals
        (('if <test> <consequent> <alternate>)
@@ -82,14 +90,24 @@
           (format t ";; ~a~%" `((lambda ,vars ,@<body>) ,@inits))
           (comp `((lambda ,vars ,@<body>) ,@inits) env c)))
        (('letrec <bindings> . <body>)
+        ;; now
         (let ((vars (mapcar #'car <bindings>))
-              (inits (mapcar #'cadr <bindings>)))
+              (inits (reverse (mapcar #'cadr <bindings>))))
           `(:DUM :NIL
                  ,@(loop :for init :in inits :append (comp init (extend-env vars env) '(:CONS)))
                  :LDF
                  ,(append (loop :for b :in (butlast <body>) :append (comp b (extend-env vars env) ()))
                           (comp (car (last <body>)) (extend-env vars env) '(:RTN)))
-                 :RAP ,@c)))
+                 :RAP ,@c))
+        ;; (let* ((vars (mapcar #'car <bindings>))
+        ;;        (inits (mapcar #'cadr <bindings>))
+        ;;        (new-env (extend-env vars env)))
+        ;;   `(:DUM :NIL
+        ;;          ,@(loop :for init :in (reverse inits) :append (comp init new-env '(:CONS)))
+        ;;          :LDF
+        ;;          ,(comp <body> new-env '(:RTN))
+        ;;          :RAP ,@c))
+        )
        ;; Numerical operations
        (('+ z1 z2) (comp z2 env (comp z1 env `(:+ ,@c))))
        (('- z1 z2) (comp z2 env (comp z1 env `(:- ,@c))))
@@ -122,27 +140,18 @@
           (t
            (format t ";; call/cc c=~a~%" c)
            (format t ";; call/cc exp=~a~%" exp)
+           (format t ";; call/cc proc=~a~%" proc)
            `(:LDCT ,c ,@(comp proc env `(:AP ,@c))))))
-       ;; (('call/cc proc)
-       ;;  (cond
-       ;;    ((null c) (error "call/cc found null!"))
-       ;;    ((equal c '(:RTN)) `(:LDCT (:RTN) ,@(comp proc env `(:TAP))))
-       ;;    (t
-       ;;     (format t ";; call/cc c=~a~%" c)
-       ;;     (format t ";; call/cc exp=~a~%" exp)
-       ;;     `(:LDCT ,c ,@(comp proc env `(:AP ,@c))))))
        ;; Input and Output
        (('write obj)
         (comp obj env `(:WRITE ,@c)))
+       ;; debug
+       (('debug)
+        (comp () env `(:DEBUG ,@c)))
        (t
         `(:NIL
           ,@(loop :for en :in (reverse (cdr exp)) :append (comp en env '(:CONS)))
           ,@(comp (car exp) env '(:AP)) ,@c)
-        ;; (if (atom (car exp)) ;; (e ek ...)
-        ;;     `(:NIL
-        ;;       ,@(loop :for en :in (reverse (cdr exp)) :append (comp en env '(:CONS)))
-        ;;       ,@(comp (car exp) env '(:AP)) ,@c)
-        ;;     (comp (car exp) env (cdr exp)))
         )
        ))
     ;; todo
