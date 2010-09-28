@@ -55,24 +55,15 @@
      (match exp
        ;; Procedures
        (('lambda <formals> . <body>)
-
         (let ((new-env (extend-env <formals> env)))
           `(:LDF ,(reduce #'(lambda (e cont)
                               (comp e new-env cont)) <body> :from-end t :initial-value '(:RTN))
                  ,@c))
-
-        ;; (let ((new-env (extend-env <formals> env)))
-        ;;   `(:LDF ,(append (loop :for b :in <body> :append (comp b new-env ())) '(:RTN))
-        ;;          ,@c))
-
         ;; ok but not clean
         ;; (let ((new-env (extend-env <formals> env)))
         ;;   `(:LDF ,(append (loop :for b :in (butlast <body>) :append (comp b new-env ()))
         ;;                   (comp (car (last <body>)) new-env '(:RTN)))
         ;;          ,@c))
-        ;;better but fail w/ letrec?? 20100922 20100924
-        ;; (let ((new-env (extend-env <formals> env)))
-        ;;   `(:LDF ,(comp <body> new-env '(:RTN)) ,@c))
         )
        ;; Conditionals
        (('if <test> <consequent> <alternate>)
@@ -96,9 +87,27 @@
           `(:DUM :NIL
                  ,@(loop :for init :in inits :append (comp init (extend-env vars env) '(:CONS)))
                  :LDF
-                 ,(append (loop :for b :in (butlast <body>) :append (comp b (extend-env vars env) ()))
-                          (comp (car (last <body>)) (extend-env vars env) '(:RTN)))
+                 ,(reduce #'(lambda (e cont)
+                              (comp e (extend-env vars env) cont)) <body> :from-end t :initial-value '(:RTN))
                  :RAP ,@c))
+        ;; 20100928 introduce reduce!
+        ;; (let ((vars (mapcar #'car <bindings>))
+        ;;       (inits (reverse (mapcar #'cadr <bindings>))))
+        ;;   `(:DUM :NIL
+        ;;          ,@(loop :for init :in inits :append (comp init (extend-env vars env) '(:CONS)))
+        ;;          :LDF
+        ;;          ,(append (loop :for b :in (butlast <body>) :append (comp b (extend-env vars env) ()))
+        ;;                   (comp (car (last <body>)) (extend-env vars env) '(:RTN)))
+        ;;          :RAP ,@c))
+
+        ;; (let ((vars (mapcar #'car <bindings>))
+        ;;       (inits (reverse (mapcar #'cadr <bindings>))))
+        ;;   `(:DUM :NIL
+        ;;          ,@(loop :for init :in inits :append (comp init (extend-env vars env) '(:CONS)))
+        ;;          :LDF
+        ;;          ,(append (loop :for b :in (butlast <body>) :append (comp b (extend-env vars env) ()))
+        ;;                   (comp (car (last <body>)) (extend-env vars env) '(:RTN)))
+        ;;          :RAP ,@c))
         ;; (let* ((vars (mapcar #'car <bindings>))
         ;;        (inits (mapcar #'cadr <bindings>))
         ;;        (new-env (extend-env vars env)))
