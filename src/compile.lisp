@@ -47,6 +47,7 @@
   (cond
     ((null exp) c)
     ((numberp exp) (comp () env `(:LDC ,exp ,@c)))
+    ((stringp exp) (comp () env `(:LDC ,exp ,@c)))
     ((eql exp #t) (comp () env `(:LDC #t ,@c)))
     ((eql exp #f) (comp () env `(:LDC #f ,@c)))
     ;; Variable references
@@ -58,13 +59,7 @@
         (let ((new-env (extend-env <formals> env)))
           `(:LDF ,(reduce #'(lambda (e cont)
                               (comp e new-env cont)) <body> :from-end t :initial-value '(:RTN))
-                 ,@c))
-        ;; ok but not clean
-        ;; (let ((new-env (extend-env <formals> env)))
-        ;;   `(:LDF ,(append (loop :for b :in (butlast <body>) :append (comp b new-env ()))
-        ;;                   (comp (car (last <body>)) new-env '(:RTN)))
-        ;;          ,@c))
-        )
+                 ,@c)))
        ;; Conditionals
        (('if <test> <consequent> <alternate>)
         (let ((ct (comp <consequent> env '(:JOIN)))
@@ -77,19 +72,19 @@
        (('let <bindings> . <body>)
         (let ((vars (mapcar #'car <bindings>))
               (inits (mapcar #'cadr <bindings>)))
-          (format t ";; let convert~%")
-          (format t ";; ~a~%" `((lambda ,vars ,@<body>) ,@inits))
+          ;; (format t ";; let convert~%")
+          ;; (format t ";; ~a~%" `((lambda ,vars ,@<body>) ,@inits))
           (comp `((lambda ,vars ,@<body>) ,@inits) env c)))
        (('letrec <bindings> . <body>)
         ;; now
         (let ((vars (mapcar #'car <bindings>))
               (inits (reverse (mapcar #'cadr <bindings>))))
           `(:DUM :NIL
-                 ,@(loop :for init :in inits :append (comp init (extend-env vars env) '(:CONS)))
+                 ,@(loop :for init :in inits :append (comp init (extend-env vars env) '(:CONS))) ;; be care 
                  :LDF
                  ,(reduce #'(lambda (e cont)
                               (comp e (extend-env vars env) cont)) <body> :from-end t :initial-value '(:RTN))
-                 :RAP ,@c))
+                 :RAP ,@c)) ;; fixme :RAP ,@c is ok??
         ;; 20100928 introduce reduce!
         ;; (let ((vars (mapcar #'car <bindings>))
         ;;       (inits (reverse (mapcar #'cadr <bindings>))))
@@ -143,11 +138,7 @@
        (t
         `(:NIL
           ,@(loop :for en :in (reverse (cdr exp)) :append (comp en env '(:CONS)))
-          ,@(comp (car exp) env `(:AP ,@c)))
-        ;; `(:NIL
-        ;;   ,@(loop :for en :in (reverse (cdr exp)) :append (comp en env '(:CONS)))
-        ;;   ,@(comp (car exp) env '(:AP)) ,@c)
-        )
+          ,@(comp (car exp) env `(:AP ,@c))))
        ))
     ;; todo
     (t
