@@ -223,35 +223,8 @@
                (comp-old <test> env `(:SEL ,ct ,cf ,@c))))
             (t (error "comp if error: ~a" exp))))
          ((equal fn 'lambda)
-          ;; else if (fn == LAMBDA)
-          ;; {
-          ;;   /*------------------------------------------------------------*/
-          ;;   /* lambda expression                                          */
-          ;;   /*------------------------------------------------------------*/
-          ;;   short len;
-          ;;   if (argl < 1)
-          ;;     error1(ERR_C2_NUM_ARGS,fn);
-          ;;   temp = rtnCont;
-          ;;   PROTECT(temp)
-          ;;   temp1 = cons(NIL,names);
-          ;;   PROTECT(temp1)
-          ;;   len = lambdaNames(car(args), &car(temp1));
-          ;;   temp2 = NIL; PROTECT(temp2)
-          ;;   if (resolveInnerDefine(cdr(args), &temp2))
-          ;;     comp(temp2, temp1, &temp);
-          ;;   else
-          ;;     compseq(temp2, temp1, &temp);
-          ;;   UNPROTECT(temp2)
-          ;;   UNPROTECT(temp1)
-          ;;   *code = cons3(MKINT(LDFC), cons(MKINT(len),car(args)), temp, *code);
-          ;;   UNPROTECT(temp)
-          ;; }
           (match exp
             (('lambda <formals> . <body>)
-             ;; (let ((new-env (extend-env <formals> env)))
-             ;;   `(:LDF ,(reduce #'(lambda (e cont)
-             ;;                       (comp-old e new-env cont)) <body> :from-end t :initial-value '(:RTN))
-             ;;          ,@c))
              (let ((new-env (extend-env <formals> env)))
                `(:LDF ,(reduce #'(lambda (e cont)
                                    (comp-old e new-env cont)) <body> :from-end t :initial-value '(:RTN))
@@ -345,11 +318,6 @@
                  `(:NIL
                    ,@(loop :for en :in (reverse args) :append (comp-old en env `(:CONS)))
                    ,@(comp-old fn env `(:AP ,@c)))))
-                   ;; (reduce #'(lambda (e cont)
-                   ;;                    (comp-old e new-env cont)) <body> :from-end t :initial-value '(:RTN))
-                   ;;,@(reduce #'(lambda (ek cont)
-                   ;;              (comp-old ek env cont)) (reverse (copy-seq args)) :from-end t :initial-value '(:CONS))
-                   ;;,@(comp-old fn env `(:AP ,@c))
             )))))))
 
 (defun compile-pass1 (exp &optional env)
