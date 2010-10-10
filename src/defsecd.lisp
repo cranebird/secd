@@ -8,24 +8,31 @@
    ( (a b . s) e (:- . c) d                   -> (x . s) e c d where x = (- a b) ))
   (:last-value
    (lambda (s e c d) (car s))))
-
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (deftransition secd (s e c d)
   (:transitions
    ( s e (:NIL . c) d                            -> (nil . s) e c d )
    ( s e (:LD (m . n) . c) d                     -> (x . s) e c d where x = (locate m n e) )
    ( s e (:LDC x . c) d                          -> (x . s) e c d )
    ( s e (:LDF |c'| . c) d                       -> ((:clos |c'| . e) . s) e c d )
+
    ( ((:clos |c'| . |e'|) v . s) e (:AP . c) d   -> nil (v . |e'|) |c'| (s e c . d) )
+
    ( ((:cont s e c . d) (v) . |s'|) |e'| (:AP . |c'|) |d'| -> (v . s) e c d)
+
    ( ((:clos |c'| . |e'|) v . s) e (:TAP) d      -> s (v . |e'|) |c'| d )
    ( ((:cont s e c . d) (v) . |s'|) |e'| (:TAP) |d'| -> (v . s) e c d )
+
    ( (x . z) |e'| (:RTN . |c'|) (s e c . d)      -> (x . s) e c d )
+
    ( (x . s) e (:SEL cT cF . c) d                -> s e cX (c . d) where cX = (if x cT cF) )
    ( (x . s) e (:SELR cT cF) d                   -> s e cX d where cX = (if x cT cF) )
    ( s e (:JOIN . c) (cr . d)                    -> s e cr d )
    ( ((:clos |c'| . |e'|) v . s) (nil . e) (:RAP . c) d -> nil |e''| |c'| (s e c . d) where |e''| = (rplaca |e'| v))
    ( s e (:DUM . c) d                            -> s (nil . e) c d)
+
    ( s e (:LDCT |c'| . c) d                      -> ( ((:cont s e |c'| . d)) . s) e c d )
+
    ( (b a . s) e (:CONS . c) d                   -> ((b . a) . s) e c d )
    ( ((a . b) . s) e (:CAR . c) d                -> (a . s) e c d )
    ( ((a . b) . s) e (:CDR . c) d                -> (b . s) e c d )
@@ -45,6 +52,10 @@
    ( (l . s) e (:L2V . c) d                      -> (v . s) e c d where v = (make-vector l))
    ( (v n . s) e (:VREF . c) d                   -> (x . s) e c d where x = (aref v n))
    ( (v n x . s) e (:VSET . c) d                 -> (v . s) e c d where v = (progn (setf (aref v n) x) v))
-   ( (x . s) e (:WRITE . c) d                    -> s e c d where dum = (format t ";; ~s~%" x) ))
+   ( (x . s) e (:WRITE . c) d                    -> s e c d where dum = (format t ";; ~s~%" x) )
+   ( s e (:DEBUG . c) d                          -> s e c d where dum = (let ((*print-circle* t))
+                                                                          (format t ";; debug:~%S: ~a~%E: ~A~%C: ~a~%D: ~a~%"
+                                                                                  s e c d)))
+   )
   (:last-value
    (lambda (s e c d) (if (consp s) (car s)))))
