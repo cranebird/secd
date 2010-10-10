@@ -1,10 +1,10 @@
 (in-package :secd)
-
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; PAIP 9.2 Compiling One Language into Another
 (defstruct rule states lhs rhs var init-form lhs-states rhs-action)
 
 (defun collect-syms (lst)
-  "Collect state symbols."
+  "Collect state symbols in list LST."
   (remove-if #'instruction-p (remove-duplicates (flatten lst))))
 
 (defun valid-rule (rule)
@@ -34,13 +34,16 @@
   (let* ((pos-arrow (position '-> transition :test #'equal))
          (pos-where (position 'where transition :test #'equal))
          (lhs (subseq transition 0 pos-arrow))
-         (rhs (subseq transition (1+ pos-arrow) (+ (1+ pos-arrow) (length lhs))))
+         (rhs (subseq transition (1+ pos-arrow)
+                      (+ (1+ pos-arrow) (length lhs))))
          (var (if pos-where
                   (nth (1+ pos-where) transition)))
          (init-form (if pos-where
                         (nth (+ 3 pos-where) transition))))
-    (assert (and pos-arrow (> pos-arrow 0)) (pos-arrow) "compile-transition found invalid format: ~s" transition)
-    (let ((rule (make-rule :states states :lhs lhs :rhs rhs :var var :init-form init-form)))
+    (assert (and pos-arrow (> pos-arrow 0)) (pos-arrow)
+            "compile-transition found invalid format: ~s" transition)
+    (let ((rule (make-rule :states states :lhs lhs :rhs rhs
+                           :var var :init-form init-form)))
       (setf (rule-lhs-states rule) (collect-syms (rule-lhs rule)))
       (labels ((state->cons (state)
                  (if (consp state)
@@ -59,11 +62,13 @@
                    (when *secd-debug*
                      (let ((*print-circle* t))
                        (format t ";;;~%")
-                       (format t "STATE MATCH ~a  -> ~a~%" ',(rule-lhs rule) ',(rule-rhs rule))
+                       (format t "STATE MATCH ~a  -> ~a~%"
+                               ',(rule-lhs rule) ',(rule-rhs rule))
                        ,@(loop :for s :in (rule-lhs-states rule)
                             :collect `(format t " ~a = ~s~%" ',s ,s))
                        ,(when (rule-var rule)
-                              `(format t " RHS VAR ~a = ~s~%" ',(rule-var rule) ,(rule-var rule)))))
+                              `(format t " RHS VAR ~a = ~s~%"
+                                       ',(rule-var rule) ,(rule-var rule)))))
                    (psetq ,@body)))))
       rule)))
 
@@ -124,17 +129,21 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
        :maximize (length (mkstr e1)) :into e1w
        :maximize (length (mkstr c1)) :into c1w
        :maximize (length (mkstr d1)) :into d1w
-       :finally (return (mapcar (lambda (n) (+ margin n)) (list s0w e0w c0w d0w s1w e1w c1w d1w))))))
+       :finally
+       (return
+         (mapcar (lambda (n) (+ margin n))
+                 (list s0w e0w c0w d0w s1w e1w c1w d1w))))))
 
 (defun describe-secd (rules)
   "Describe secd rules."
   (with-output-to-string (out)
     (let ((*print-pretty* nil))
-      (destructuring-bind  (s0w e0w c0w d0w s1w e1w c1w d1w)
+      (destructuring-bind (s0w e0w c0w d0w s1w e1w c1w d1w)
           (max-rule-width rules)
         (let ((w (+ (apply #'+ (list s0w e0w c0w d0w s1w e1w c1w d1w))
                     (length "-> "))))
-          (flet ((hr () (loop :repeat w :do (format out "-") :finally (format out "~%"))))
+          (flet ((hr ()
+                   (loop :repeat w :do (format out "-") :finally (format out "~%"))))
             (format out
                     "           INITIAL STATE                                                  TRANSFORMED STATE~%")
             (format out "~va~va~va~va   ~va~va~va~va~%" s0w 's e0w 'e c0w 'c d0w 'd s1w 's e1w 'e c1w 'c d1w 'd)
@@ -177,9 +186,24 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
            ,(rules->match-n rules `(,name ,@states) last-value))
          (export ',name)))))
 
-(defun secd-eval (exp &key (debug nil) (optimize t))
+(defun secd-eval (exp &key (debug nil) (optimize t) (show nil))
   "Eval an expression."
-  (let* ((c (opt (compile-pass1 exp))))
+  (let ((c (compile-pass1 exp)))
+    (when optimize
+      (setq c (opt c)))
     (let ((*secd-debug* debug)
           (*print-circle* t))
+      (when show
+        (format t ";; code: ~s~%" c))
       (secd 's0 'e0 `(,@c . c0) 'd0))))
+
+;; (defun secd-eval (exp &key (debug nil) (optimize t) (show nil))
+;;   "Eval an expression."
+;;   (let ((c (if optimize
+;;                (opt (compile-pass1 exp))
+;;                (compile-pass1 exp))))
+;;     (let ((*secd-debug* debug)
+;;           (*print-circle* t))
+;;       (when show
+;;         (format t ";; code: ~s~%" c))
+;;       (secd 's0 'e0 `(,@c . c0) 'd0))))
