@@ -103,16 +103,8 @@
                (comp `((lambda ,vars ,@<body>) ,@inits) env c)))
             (t (comp-error exp "Unexpected let form."))))
          ((equal fn 'letrec)
-
-          ;; `(:NIL
-          ;;   ,@(reduce #'(lambda (e cont)
-          ;;                 (comp e env `(:CONS ,@cont)))
-          ;;             (reverse args)
-          ;;             :from-end t
-          ;;             :initial-value (comp fn env `(:AP ,@c))))
-
           (match exp
-            (('letrec <bindings> . <body>) ;; BE CARE TODO check me
+            (('letrec <bindings> . <body>)
              (let* ((vars (mapcar #'car <bindings>))
                     (inits (reverse (mapcar #'cadr <bindings>)))
                     (new-env (extend-env vars env)))
@@ -138,7 +130,6 @@
                ;;                 <body> :from-end t :initial-value '(:RTN))
                ;;        :RAP ,@c
                ;;        )
-               
                )) ;; fixme :RAP ,@c is ok??
             (t (comp-error exp "Unexpected letrec form."))))
          ((equal fn 'begin)
@@ -219,130 +210,6 @@
                             (reverse args)
                             :from-end t
                             :initial-value (comp fn env `(:AP ,@c)))))))
-            )))))))
-
-(defun comp-old (exp env c)
-  "Compile an expression EXP."
-  (cond
-    ((null exp) c)
-    ((self-evaluating-p exp)
-     (comp-old () env `(:LDC ,exp ,@c)))
-    ;; Variable access
-    ((atom exp)
-     (let ((location (lookup exp env)))
-       (unless location
-         (error "variable not found: ~a" exp))
-       (comp-old () env `(:LD ,(lookup exp env) ,@c))))
-    ((consp exp)
-     (let* ((fn (car exp))
-            (args (cdr exp))
-            (argl (length args)))
-       (cond
-         ((equal fn 'quote)
-          (error "not impl. yet: quote"))
-         ((equal fn 'if)
-          (match exp
-            (('if <test> <consequent> <alternate>)
-             (let ((ct (comp-old <consequent> env '(:JOIN)))
-                   (cf (comp-old <alternate> env '(:JOIN))))
-               (comp-old <test> env `(:SEL ,ct ,cf ,@c))))
-            (t (error "comp if error: ~a" exp))))
-         ((equal fn 'lambda)
-          (match exp
-            (('lambda <formals> . <body>)
-             (let ((new-env (extend-env <formals> env)))
-               `(:LDF ,(reduce #'(lambda (e cont)
-                                   (comp-old e new-env cont)) <body> :from-end t :initial-value '(:RTN))
-                      ,@c)))
-            (t (error "comp lambda error"))))
-         ((equal fn 'let)
-          (match exp
-            (('let <bindings> . <body>)
-             (let ((vars (mapcar #'car <bindings>))
-                   (inits (mapcar #'cadr <bindings>)))
-               (format t ";; let convert cont: ~a~%" `((lambda ,vars ,@<body>) ,@inits))
-               ;; (format t ";; let convert cont: ~a~%" c)
-               ;; (format t ";; ~a~%" `((lambda ,vars ,@<body>) ,@inits))
-               (comp-old `((lambda ,vars ,@<body>) ,@inits) env c)))
-            (t (error "comp let error"))))
-         ((equal fn 'letrec)
-          (match exp
-            (('letrec <bindings> . <body>)
-             (let ((vars (mapcar #'car <bindings>))
-                   (inits (reverse (mapcar #'cadr <bindings>))))
-               `(:DUM :NIL
-                      ,@(loop :for init :in inits
-                           :append (comp-old init (extend-env vars env) '(:CONS))) ;; be care 
-                      :LDF
-                      ,(reduce #'(lambda (e cont)
-                                   (comp-old e (extend-env vars env) cont))
-                               <body> :from-end t :initial-value '(:RTN))
-                      :RAP ,@c))) ;; fixme :RAP ,@c is ok??
-            (t (error "comp letrec error"))))
-         ((equal fn 'begin)
-          (error "comp begin not impl. yet"))
-         ((equal fn 'set!)
-          (match exp
-            (('set! <variable> <expression>)
-             (comp-old <expression> env `(:SET ,(lookup <variable> env) ,@c)))
-            (t (error "comp set! error"))))
-         ((equal fn 'call/cc)
-          (match exp
-            (('call/cc proc)
-             (cond
-               ((null c) (error "call/cc found null!"))
-               ((equal c '(:RTN)) `(:LDCT (:RTN) ,@(comp-old proc env `(:TAP))))
-               (t
-                (format t ";; call/cc c=~a~%" c)
-                (format t ";; call/cc exp=~a~%" exp)
-                (format t ";; call/cc proc=~a~%" proc)
-                `(:LDCT ,c ,@(comp-old proc env `(:AP ,@c))))))
-            (t (error "comp call/cc error"))))
-         
-         ((equal fn 'define)
-          (error "comp define not impl. yet"))
-         ((equal fn 'apply)
-          (error "comp apply not impl. yet"))
-         ;; primitive re-define
-         ;; keyword
-         (t
-          (match exp
-            ;; Numerical operations
-            (('+ z1 z2) (comp-old z2 env (comp-old z1 env `(:+ ,@c))))
-            (('- z1 z2) (comp-old z2 env (comp-old z1 env `(:- ,@c))))
-            (('* z1 z2) (comp-old z2 env (comp-old z1 env `(:* ,@c))))
-            (('> z1 z2) (comp-old z2 env (comp-old z1 env `(:> ,@c))))
-            (('>= z1 z2) (comp-old z2 env (comp-old z1 env `(:>= ,@c))))
-            (('< z1 z2) (comp-old z2 env (comp-old z1 env `(:< ,@c))))
-            (('<= z1 z2) (comp-old z2 env (comp-old z1 env `(:<= ,@c))))
-            (('= z1 z2) (comp-old z2 env (comp-old z1 env `(:= ,@c))))
-            (('mod z1 z2) (comp-old z2 env (comp-old z1 env `(:mod ,@c))))
-            ;; Pair and lists
-            (('cons obj1 obj2) (comp-old obj2 env (comp-old obj1 env `(:CONS ,@c))))
-            (('car pair) (comp-old pair env `(:CAR ,@c)))
-            (('cdr pair) (comp-old pair env `(:CDR ,@c)))
-            (('consp obj) (comp-old obj env `(:CONSP ,@c)))
-            (('pair? obj) (comp-old obj env `(:CONSP ,@c)))
-            ;; Vectors
-            (('vector-length e1) (comp-old e1 env `(:VLEN ,@c)))
-            (('vector . rest)
-             `(:NIL ,@(loop :for e :in (reverse rest) :append (comp-old e env '(:CONS))) :L2V ,@c))
-            (('vector-ref vec n) ;; (vector-ref vec n)
-             (comp-old vec env (comp-old n env `(:VREF ,@c))))
-            (('vector-set! vec n obj) ;; (vector-set! vec n obj)
-             (comp-old vec env (comp-old n env (comp-old obj env `(:VSET ,@c)))))
-            ;; Input and Output
-            (('write obj)
-             (comp-old obj env `(:WRITE ,@c)))
-            ;; debug
-            (('debug)
-             (comp-old () env `(:DEBUG ,@c)))
-            (t
-             (if (= argl 0)
-                 `(:NIL ,@(comp-old fn env `(:AP ,@c)))
-                 `(:NIL
-                   ,@(loop :for en :in (reverse args) :append (comp-old en env `(:CONS)))
-                   ,@(comp-old fn env `(:AP ,@c)))))
             )))))))
 
 (defun compile-pass1 (exp &optional env)
