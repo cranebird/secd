@@ -50,7 +50,7 @@
   ((expr :initarg :expr :accessor scheme-compile-error-expr)
    (reason :initarg :reason :accessor scheme-compile-error-reason))
   (:report (lambda (condition stream)
-             (format stream "SCHEME Compile Error: Fail to compile: ~a~%~a"
+             (format stream "SCHEME Compile Error: Fail to compile ~a~%~a"
                      (scheme-compile-error-expr condition)
                      (scheme-compile-error-reason condition)))))
 
@@ -103,18 +103,44 @@
                (comp `((lambda ,vars ,@<body>) ,@inits) env c)))
             (t (comp-error exp "Unexpected let form."))))
          ((equal fn 'letrec)
+
+          ;; `(:NIL
+          ;;   ,@(reduce #'(lambda (e cont)
+          ;;                 (comp e env `(:CONS ,@cont)))
+          ;;             (reverse args)
+          ;;             :from-end t
+          ;;             :initial-value (comp fn env `(:AP ,@c))))
+
           (match exp
             (('letrec <bindings> . <body>) ;; BE CARE TODO check me
-             (let ((vars (mapcar #'car <bindings>))
-                   (inits (reverse (mapcar #'cadr <bindings>))))
-               `(:DUM :NIL
-                      ,@(loop :for init :in inits
-                           :append (comp init (extend-env vars env) '(:CONS)))
-                      :LDF
-                      ,(reduce #'(lambda (e cont)
-                                   (comp e (extend-env vars env) cont))
-                               <body> :from-end t :initial-value '(:RTN))
-                      :RAP ,@c))) ;; fixme :RAP ,@c is ok??
+             (let* ((vars (mapcar #'car <bindings>))
+                    (inits (reverse (mapcar #'cadr <bindings>)))
+                    (new-env (extend-env vars env)))
+               ;; new
+               `(:DUM 
+                 :NIL
+                 ,@(reduce
+                    #'(lambda (init cont)
+                        (comp init new-env `(:CONS ,@cont))) inits
+                        :from-end t
+                        :initial-value `(:LDF
+                                         ,(reduce #'(lambda (e cont)
+                                                      (comp e new-env cont))
+                                                  <body> :from-end t :initial-value '(:RTN))
+                                         :RAP ,@c))
+                 )
+               ;; old 
+               ;; `(:DUM :NIL
+               ;;        ,@(loop :for init :in inits
+               ;;             :append (comp init (extend-env vars env) '(:CONS)))
+               ;;        :LDF
+               ;;        ,(reduce #'(lambda (e cont)
+               ;;                     (comp e (extend-env vars env) cont))
+               ;;                 <body> :from-end t :initial-value '(:RTN))
+               ;;        :RAP ,@c
+               ;;        )
+               
+               )) ;; fixme :RAP ,@c is ok??
             (t (comp-error exp "Unexpected letrec form."))))
          ((equal fn 'begin)
           (comp-error exp "Not implement yet."))
