@@ -127,8 +127,7 @@
                                          ,(reduce #'(lambda (e cont)
                                                       (comp e new-env cont))
                                                   <body> :from-end t :initial-value '(:RTN))
-                                         :RAP ,@c))
-                 )
+                                         :RAP ,@c)))
                ;; old 
                ;; `(:DUM :NIL
                ;;        ,@(loop :for init :in inits
