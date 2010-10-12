@@ -91,8 +91,10 @@
             (('lambda <formals> . <body>)
              (let ((new-env (extend-env <formals> env)))
                `(:LDF ,(reduce #'(lambda (e cont)
-                                   (comp e new-env cont)) <body>
-                                   :from-end t :initial-value '(:RTN))
+                                   (comp e new-env cont))
+                               <body>
+                               :from-end t
+                               :initial-value '(:RTN))
                       ,@c)))
             (t (comp-error exp "Unexpected lambda form."))))
          ((equal fn 'let)
@@ -118,7 +120,9 @@
                         :initial-value `(:LDF
                                          ,(reduce #'(lambda (e cont)
                                                       (comp e new-env cont))
-                                                  <body> :from-end t :initial-value '(:RTN))
+                                                  <body>
+                                                  :from-end t
+                                                  :initial-value '(:RTN))
                                          :RAP ,@c)))
                ;; old 
                ;; `(:DUM :NIL
@@ -133,7 +137,12 @@
                )) ;; fixme :RAP ,@c is ok??
             (t (comp-error exp "Unexpected letrec form."))))
          ((equal fn 'begin)
-          (comp-error exp "Not implement yet."))
+          ;; (comp-error exp "Not implement yet.")
+          (reduce #'(lambda (e cont)
+                      (comp e env `(:POP ,@cont)))
+                  (butlast args)
+                  :from-end t
+                  :initial-value (comp (car (last args)) env c)))
          ((equal fn 'set!)
           (match exp
             (('set! <variable> <expression>)
