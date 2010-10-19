@@ -55,6 +55,7 @@
                      (scheme-compile-error-reason condition)))))
 
 (defun comp-error (expr reason &rest args)
+  "raise scheme-compile-error."
   (error (make-condition 'scheme-compile-error
                          :expr expr
                          :reason (apply #'format nil reason args))))
