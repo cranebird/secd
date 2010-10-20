@@ -111,7 +111,6 @@
              (let* ((vars (mapcar #'car <bindings>))
                     (inits (reverse (mapcar #'cadr <bindings>)))
                     (new-env (extend-env vars env)))
-               ;; new
                `(:DUM 
                  :NIL
                  ,@(reduce
@@ -124,21 +123,9 @@
                                                   <body>
                                                   :from-end t
                                                   :initial-value '(:RTN))
-                                         :RAP ,@c)))
-               ;; old 
-               ;; `(:DUM :NIL
-               ;;        ,@(loop :for init :in inits
-               ;;             :append (comp init (extend-env vars env) '(:CONS)))
-               ;;        :LDF
-               ;;        ,(reduce #'(lambda (e cont)
-               ;;                     (comp e (extend-env vars env) cont))
-               ;;                 <body> :from-end t :initial-value '(:RTN))
-               ;;        :RAP ,@c
-               ;;        )
-               )) ;; fixme :RAP ,@c is ok??
+                                         :RAP ,@c)))))
             (t (comp-error exp "Unexpected letrec form."))))
          ((equal fn 'begin)
-          ;; (comp-error exp "Not implement yet.")
           (reduce #'(lambda (e cont)
                       (comp e env `(:POP ,@cont)))
                   (butlast args)
@@ -153,7 +140,8 @@
           (match exp
             (('call/cc proc)
              (cond
-               ((null c) (comp-error exp "Unexpected call/cc. Continuation is null."))
+               ((null c)
+                (comp-error exp "Unexpected call/cc. Continuation is null."))
                ((equal c '(:RTN)) `(:LDCT (:RTN) ,@(comp proc env `(:TAP))))
                (t
                 `(:LDCT ,c ,@(comp proc env `(:AP ,@c))))))
@@ -170,11 +158,10 @@
              (comp (car args) env c))
             ((2) ;; (+ x y)
              (comp (cadr args) env (comp (car args) env `(:+ ,@c))))
-            (t ;;(+ x y z) => (+ (+ x y) z)
-             (comp-error exp "not impl yet"))))
-
-         ;; primitive re-define
-         ;; keyword
+            (t ;;(+ x y z) => (+ x (+ y z))
+             (comp `(+ ,(car args) (+ ,@(cdr args))) env c))))
+         ;; primitive re-define ;; TODO
+         ;; keyword ;; TODO
          (t
           (match exp
             ;; Numerical operations
