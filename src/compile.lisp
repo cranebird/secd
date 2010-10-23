@@ -160,14 +160,43 @@
              (comp (cadr args) env (comp (car args) env `(:+ ,@c))))
             (t ;;(+ x y z) => (+ x (+ y z))
              (comp `(+ ,(car args) (+ ,@(cdr args))) env c))))
+         ((equal fn '*)
+          (case argl
+            ((0) ;; (*) => 1
+             (comp 1 env c))
+            ((1) ;; (* z) => z
+             (comp (car args) env c))
+            ((2) ;; (* z1 z2)
+             (comp (cadr args) env (comp (car args) env `(:* ,@c))))
+            (t ;;(* x y z) => (* x (* y z))
+             (comp `(* ,(car args) (* ,@(cdr args))) env c))))
+         ((equal fn '-)
+          (case argl
+            ((0) ;; (-) => error
+             (comp-error exp "(-) is invalid form."))
+            ((1) ;; (- z) => -z
+             (comp (- (car args)) env c))
+            ((2) ;; (- z1 z2)
+             (comp (cadr args) env (comp (car args) env `(:- ,@c))))
+            (t ;;(- z1 z2 ...)
+             (comp `(- (- ,(first args) ,(second args)) ,@(nthcdr 2 args)) env nil))))
+         ((equal fn '=)
+          (case argl
+            ((0) ;; (=) => error
+             (comp-error exp "(=) is invalid form."))
+            ((1) ;; (= 1) => error (but not error in CL.)
+             (comp-error exp "= require 2 arguments."))
+            ((2)
+             (comp (second args) env (comp (first args) env `(:= ,@c))))
+            (t
+             
+             )))
+
          ;; primitive re-define ;; TODO
          ;; keyword ;; TODO
          (t
           (match exp
             ;; Numerical operations
-            ;;(('+ z1 z2) (comp z2 env (comp z1 env `(:+ ,@c))))
-            (('- z1 z2) (comp z2 env (comp z1 env `(:- ,@c))))
-            (('* z1 z2) (comp z2 env (comp z1 env `(:* ,@c))))
             (('> z1 z2) (comp z2 env (comp z1 env `(:> ,@c))))
             (('>= z1 z2) (comp z2 env (comp z1 env `(:>= ,@c))))
             (('< z1 z2) (comp z2 env (comp z1 env `(:< ,@c))))
