@@ -2,7 +2,7 @@
 
 (asdf:defsystem :secd
   :description "secd: SECD Machine in Common Lisp."
-  :version "0.1.0"
+  :version "0.2.1"
   :author "cranebird <quasi@kc4.so-net.ne.jp>"
   :depends-on (:test-framework)
   :components ((:file "package")
