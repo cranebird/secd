@@ -65,7 +65,7 @@
   (cond
     ((self-evaluating-p exp)
      `(:LDC ,exp ,@c)) ;; BE CARE fixme
-    ((null exp) 
+    ((null exp)
      `(:NIL ,@c))
     ;; Variable access
     ((atom exp)
@@ -87,6 +87,14 @@
                    (cf (comp <alternate> env '(:JOIN))))
                (comp <test> env `(:SEL ,ct ,cf ,@c))))
             (t (comp-error exp "Unexpected if form."))))
+         ((equal fn 'and)
+          (case argl
+            ((0) (comp #t env c))
+            ((1) (comp `(if ,(car args) #t #f) env c))
+            (t
+             (comp `(if ,(car args)
+                        (and ,(cdr args))
+                        #f) env c))))
          ((equal fn 'lambda)
           (match exp
             (('lambda <formals> . <body>)
@@ -184,14 +192,13 @@
           (case argl
             ((0) ;; (=) => error
              (comp-error exp "(=) is invalid form."))
-            ((1) ;; (= 1) => error (but not error in CL.)
+            ((1) ;; (= 1) => error
              (comp-error exp "= require 2 arguments."))
             ((2)
              (comp (second args) env (comp (first args) env `(:= ,@c))))
-            (t
-             
+            (t ;; (= x y z) => (and (= x y) (= y z))
+             (comp `(= ,(car args) (= ,@(cdr args))) env c)
              )))
-
          ;; primitive re-define ;; TODO
          ;; keyword ;; TODO
          (t
