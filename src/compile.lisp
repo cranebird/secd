@@ -196,9 +196,18 @@
              (comp-error exp "= require 2 arguments."))
             ((2)
              (comp (second args) env (comp (first args) env `(:= ,@c))))
-            (t ;; (= x y z) => (and (= x y) (= y z))
-             (comp `(= ,(car args) (= ,@(cdr args))) env c)
+            ((3) ;; (= x y z) => (and (= x y) (= y z))
+             (comp `(if (and (= ,(car args) ,(cadr args))
+                             (= ,(cadr args) ,(caddr args)))
+                        #t
+                        #f) env c))
+            (t
+             (comp `(if (and (= ,(car args) ,(cadr args))
+                             (= ,(cadr args) ,@(cddr args)))
+                        #t
+                        #f) env c)
              )))
+
          ;; primitive re-define ;; TODO
          ;; keyword ;; TODO
          (t
