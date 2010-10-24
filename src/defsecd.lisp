@@ -1,5 +1,11 @@
 (in-package :secd)
 
+(deftransition secd%% (s e c d)
+  (:transitions
+   ( s e (:LDC x . c) d                       -> (x . s) e c d ))
+  (:last-value
+   (lambda (s e c d) (car s))))
+
 (deftransition secd% (s e c d)
   (:transitions
    ( s e (:LDC x . c) d                       -> (x . s) e c d )
@@ -12,6 +18,7 @@
 (deftransition secd (s e c d)
   (:transitions
    ( s e (:NIL . c) d                            -> (nil . s) e c d )
+   ( (x . s) e (:POP . c) d                      -> s e c d )
    ( s e (:LD (m . n) . c) d                     -> (x . s) e c d where x = (locate m n e) )
    ( s e (:LDC x . c) d                          -> (x . s) e c d )
    ( s e (:LDF |c'| . c) d                       -> ((:clos |c'| . e) . s) e c d )
@@ -25,8 +32,8 @@
 
    ( (x . z) |e'| (:RTN . |c'|) (s e c . d)      -> (x . s) e c d )
 
-   ( (x . s) e (:SEL cT cF . c) d                -> s e cX (c . d) where cX = (if x cT cF) )
-   ( (x . s) e (:SELR cT cF) d                   -> s e cX d where cX = (if x cT cF) )
+   ( (x . s) e (:SEL cT cF . c) d                -> s e cX (c . d) where cX = (if (not (eq x #f)) cT cF) )
+   ( (x . s) e (:SELR cT cF) d                   -> s e cX d where cX = (if (not (eq x #f)) cT cF) )
    ( s e (:JOIN . c) (cr . d)                    -> s e cr d )
    ( ((:clos |c'| . |e'|) v . s) (nil . e) (:RAP . c) d -> nil |e''| |c'| (s e c . d) where |e''| = (rplaca |e'| v))
    ( s e (:DUM . c) d                            -> s (nil . e) c d)
@@ -42,11 +49,11 @@
    ( (a b . s) e (:+ . c) d                      -> (x . s) e c d where x = (+ a b) )
    ( (a b . s) e (:- . c) d                      -> (x . s) e c d where x = (- a b) )
    ( (a b . s) e (:* . c) d                      -> (x . s) e c d where x = (* a b) )
-   ( (a b . s) e (:= . c) d                      -> (x . s) e c d where x = (= a b) )
-   ( (a b . s) e (:> . c) d                      -> (x . s) e c d where x = (> a b) )
-   ( (a b . s) e (:>= . c) d                     -> (x . s) e c d where x = (>= a b) )
-   ( (a b . s) e (:< . c) d                      -> (x . s) e c d where x = (< a b) )
-   ( (a b . s) e (:<= . c) d                     -> (x . s) e c d where x = (<= a b) )
+   ( (a b . s) e (:= . c) d                      -> (x . s) e c d where x = (if (= a b) #t #f) )
+   ( (a b . s) e (:> . c) d                      -> (x . s) e c d where x = (if (> a b) #t #f) )
+   ( (a b . s) e (:>= . c) d                     -> (x . s) e c d where x = (if (>= a b) #t #f) )
+   ( (a b . s) e (:< . c) d                      -> (x . s) e c d where x = (if (< a b) #t #f) )
+   ( (a b . s) e (:<= . c) d                     -> (x . s) e c d where x = (if (<= a b) #t #f) )
    ( (a b . s) e (:mod . c) d                    -> (x . s) e c d where x = (mod a b) )
    ( (v . s) e (:VLEN . c) d                     -> (x . s) e c d where x = (length v))
    ( (l . s) e (:L2V . c) d                      -> (v . s) e c d where v = (make-vector l))
