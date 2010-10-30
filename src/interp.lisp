@@ -91,8 +91,8 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
     `(match-n ,states
        ,@(loop :for rule :in rules
             :for pattern = (rule-lhs rule)
-            :for body = (rule-rhs-action rule)
-            :collect `(,pattern (progn ,body ,cont)))
+            :for action = (rule-rhs-action rule)
+            :collect `(,pattern (progn ,action ,cont)))
        ;; base case
        (,(loop :for s :in states :collect 't)
          (,base-case ,@states)))))
@@ -134,7 +134,7 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
          (mapcar (lambda (n) (+ margin n))
                  (list s0w e0w c0w d0w s1w e1w c1w d1w))))))
 
-(defun describe-secd (rules)
+(defun describe-secd (rules) ;; ugly
   "Describe secd rules."
   (with-output-to-string (out)
     (let ((*print-pretty* nil))
@@ -178,6 +178,7 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
            (desc (describe-secd rules)))
       `(progn
          (format t ";; ~a transition~%~a~%" ',name ,desc)
+         ;(defparameter ,name ',rules)
          (defun ,name (,@states)
            ,desc
            ;;(declare (optimize (debug 0) (speed 3) (safety 0)))
@@ -185,6 +186,14 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
              (format t "STATE:~% S = ~s~% E = ~s~% C = ~s~% D = ~s~%" ,@states))
            ,(rules->match-n rules `(,name ,@states) last-value))
          (export ',name)))))
+
+;; todo
+;; (defmacro secd-maker (rules)
+;;   `(lambda (s e c d)
+;;     ,(rules->match-n rules))
+;;   )
+       
+
 
 (defun secd-eval (exp &key (debug nil) (optimize t) (show nil))
   "Eval an expression."
