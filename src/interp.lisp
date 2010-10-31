@@ -1,13 +1,23 @@
 (in-package :secd)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; PAIP 9.2 Compiling One Language into Another
-(defstruct rule states lhs rhs var init-form lhs-states)
+(defstruct rule lhs rhs var init-form lhs-states)
+
+(define-condition compile-rule-error (simple-error)
+  ((reason :initarg :reason :accessor compile-rule-error-reason))
+  (:report (lambda (condition stream)
+             (format stream "Define SECD Error: ~a"
+                     (compile-rule-error-reason condition)))))
+
+(defun rule-error (reason &rest args)
+  (error (make-condition 'compile-rule-error
+                         :reason (apply #'format nil reason args))))
 
 (defun collect-syms (lst)
   "Collect state symbols in list LST."
   (remove-if #'instruction-p (remove-duplicates (flatten lst))))
 
-(defun valid-rule (rule)
+(defun valid-rule-p (rule)
   "Validate a rule structure."
   (let ((lhs-syms (collect-syms (if (rule-var rule)
                                     (append (rule-lhs rule) (rule-var rule))
@@ -15,9 +25,13 @@
         (rhs-syms (collect-syms (rule-rhs rule))))
     (null (set-difference rhs-syms lhs-syms))))
 
+(defun unique-rules-p (rules)
+  (= (length rules)
+     (length (remove-duplicates rules :test #'equal :key #'rule-lhs))))
+
 (defun validate-rules (rules)
   "Validate list of rule structure."
-  (and (every #'valid-rule rules)
+  (and (every #'valid-rule-p rules)
        (loop :for rule :in rules
           :for lhs = (rule-lhs rule)
           :if (member lhs lhss :test #'equal)
@@ -29,7 +43,7 @@
               (return (values t rules))
               (return (values nil duplicate-lhs))))))
 
-(defun compile-transition (states transition)
+(defun compile-transition (transition)
   "Compile a transition into a rule structure."
   (let* ((pos-arrow (position '-> transition :test #'equal))
          (pos-where (position 'where transition :test #'equal))
@@ -42,19 +56,17 @@
                         (nth (+ 3 pos-where) transition))))
     (assert (and pos-arrow (> pos-arrow 0)) (pos-arrow)
             "compile-transition found invalid format: ~s" transition)
-    (let ((rule (make-rule :states states :lhs lhs :rhs rhs
-                           :var var :init-form init-form)))
-      (setf (rule-lhs-states rule) (collect-syms (rule-lhs rule)))
-      rule)))
+    (make-rule :lhs lhs :rhs rhs :var var :init-form init-form
+               :lhs-states (collect-syms lhs))))
 
-(defun make-transit (rule)
+(defun make-transit (states rule)
   "Generate transit function."
   (labels ((state->cons (state)
              (if (consp state)
                  `(cons ,(state->cons (car state))
                         ,(state->cons (cdr state)))
                  state)))
-    (let ((body (loop :for var :in (rule-states rule)
+    (let ((body (loop :for var :in states
                    :for rhs-state :in (rule-rhs rule)
                    :for form = (state->cons rhs-state)
                    :unless (eql var form)
@@ -74,30 +86,29 @@
                              ',(rule-var rule) ,(rule-var rule)))))
          (psetq ,@body)))))
 
-(defun compile-transitions (states transitions)
-  "Parse specs into list of rule structure.
-rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side where var = init-form"
-  (loop :for transition :in transitions
-     :for rule-obj = (compile-transition states transition)
-     :collect rule-obj :into definitions
-     :finally
-     (multiple-value-bind (success result)
-         (validate-rules definitions)
-       (if success
-           (return result)
-           (error "found invalid rule: ~a" result)))))
+;; (defun compile-transitions (transitions)
+;;   "Parse specs into list of rule structure.
+;; rule: left-hand-side -> right-hand-side or
+;; left-hand-side -> right-hand-side where var = init-form"
+;;   (loop :for transition :in transitions
+;;      :for rule-obj = (compile-transition transition)
+;;      :collect rule-obj :into definitions
+;;      :finally
+;;      (multiple-value-bind (success result)
+;;          (validate-rules definitions)
+;;        (if success
+;;            (return result)
+;;            (rule-error rule "Found invalid rule")))))
 
-(defun rules->match-n (rules &optional cont base-case)
-  "Convert rules to match-n"
-  (let ((states (rule-states (car rules))))
-    `(match-n ,states
-       ,@(loop :for rule :in rules
-            :for pattern = (rule-lhs rule)
-            :for transit = (make-transit rule)
-            :collect `(,pattern (progn ,transit ,cont)))
-       ;; base case
-       (,(loop :for s :in states :collect 't)
-         (,base-case ,@states)))))
+(defun rules->match-n (states rules cont base-case)
+  "Convert rules to match-n."
+  `(match-n ,states
+     ,@(loop :for rule :in rules
+          :for pattern = (rule-lhs rule)
+          :collect `(,pattern (progn ,(make-transit states rule) ,cont)))
+     ;; base case
+     (,(loop :for s :in states :collect 't)
+       (,base-case ,@states))))
 
 (declaim (inline locate))
 
@@ -175,9 +186,14 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
   "Define a SECD machine."
   (let ((transitions (cdr (assoc :transitions spec)))
         (last-value (cadr (assoc :last-value spec))))
-    (let* ((states (loop :for s :in states :collect (gensym (mkstr s))))
-           (rules (compile-transitions states transitions))
+    (let* ((states (mapcar #'(lambda (x) (gensym (mkstr x))) states))
+           (rules (mapcar #'compile-transition transitions))
            (desc (describe-secd rules)))
+      (let ((invalid-rules (find-if-not #'valid-rule-p rules)))
+        (when invalid-rules
+          (rule-error "Contain invalid rules: ~s" invalid-rules)))
+      (unless (unique-rules-p rules)
+        (rule-error "Found duplicate rules"))
       `(progn
          (format t ";; ~a transition~%~a~%" ',name ,desc)
          ;(defparameter ,name ',rules)
@@ -186,7 +202,7 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
            ;;(declare (optimize (debug 0) (speed 3) (safety 0)))
            (when *secd-debug*
              (format t "STATE:~% S = ~s~% E = ~s~% C = ~s~% D = ~s~%" ,@states))
-           ,(rules->match-n rules `(,name ,@states) last-value))
+           ,(rules->match-n states rules `(,name ,@states) last-value))
          (export ',name)))))
 
 ;; todo
