@@ -1,7 +1,7 @@
 (in-package :secd)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; PAIP 9.2 Compiling One Language into Another
-(defstruct rule states lhs rhs var init-form lhs-states rhs-action)
+(defstruct rule states lhs rhs var init-form lhs-states)
 
 (defun collect-syms (lst)
   "Collect state symbols in list LST."
@@ -45,32 +45,34 @@
     (let ((rule (make-rule :states states :lhs lhs :rhs rhs
                            :var var :init-form init-form)))
       (setf (rule-lhs-states rule) (collect-syms (rule-lhs rule)))
-      (labels ((state->cons (state)
-                 (if (consp state)
-                     `(cons ,(state->cons (car state))
-                            ,(state->cons (cdr state)))
-                     state)))
-        (let ((body (loop :for var :in (rule-states rule)
-                       :for rhs-state :in (rule-rhs rule)
-                       :for form = (state->cons rhs-state)
-                       :unless (eql var form)
-                       :append `(,var ,form))))
-          (setf (rule-rhs-action rule)
-                `(let ,(if (rule-var rule)
-                           `((,(rule-var rule) ,(rule-init-form rule)))
-                           ())
-                   (when *secd-debug*
-                     (let ((*print-circle* t))
-                       (format t ";;;~%")
-                       (format t "STATE MATCH ~a  -> ~a~%"
-                               ',(rule-lhs rule) ',(rule-rhs rule))
-                       ,@(loop :for s :in (rule-lhs-states rule)
-                            :collect `(format t " ~a = ~s~%" ',s ,s))
-                       ,(when (rule-var rule)
-                              `(format t " RHS VAR ~a = ~s~%"
-                                       ',(rule-var rule) ,(rule-var rule)))))
-                   (psetq ,@body)))))
       rule)))
+
+(defun make-transit (rule)
+  "Generate transit function."
+  (labels ((state->cons (state)
+             (if (consp state)
+                 `(cons ,(state->cons (car state))
+                        ,(state->cons (cdr state)))
+                 state)))
+    (let ((body (loop :for var :in (rule-states rule)
+                   :for rhs-state :in (rule-rhs rule)
+                   :for form = (state->cons rhs-state)
+                   :unless (eql var form)
+                   :append `(,var ,form))))
+      `(let ,(if (rule-var rule)
+                 `((,(rule-var rule) ,(rule-init-form rule)))
+                 ())
+         (when *secd-debug*
+           (let ((*print-circle* t))
+             (format t ";;;~%")
+             (format t "STATE MATCH ~a  -> ~a~%"
+                     ',(rule-lhs rule) ',(rule-rhs rule))
+             ,@(loop :for s :in (rule-lhs-states rule)
+                  :collect `(format t " ~a = ~s~%" ',s ,s))
+             ,(when (rule-var rule)
+                    `(format t " RHS VAR ~a = ~s~%"
+                             ',(rule-var rule) ,(rule-var rule)))))
+         (psetq ,@body)))))
 
 (defun compile-transitions (states transitions)
   "Parse specs into list of rule structure.
@@ -91,8 +93,8 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
     `(match-n ,states
        ,@(loop :for rule :in rules
             :for pattern = (rule-lhs rule)
-            :for action = (rule-rhs-action rule)
-            :collect `(,pattern (progn ,action ,cont)))
+            :for transit = (make-transit rule)
+            :collect `(,pattern (progn ,transit ,cont)))
        ;; base case
        (,(loop :for s :in states :collect 't)
          (,base-case ,@states)))))
@@ -192,8 +194,6 @@ rule: left-hand-side -> right-hand-side or left-hand-side -> right-hand-side whe
 ;;   `(lambda (s e c d)
 ;;     ,(rules->match-n rules))
 ;;   )
-       
-
 
 (defun secd-eval (exp &key (debug nil) (optimize t) (show nil))
   "Eval an expression."
