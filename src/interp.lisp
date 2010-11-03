@@ -26,22 +26,9 @@
     (null (set-difference rhs-syms lhs-syms))))
 
 (defun unique-rules-p (rules)
+  "Return nil if rules contain duplicate rule(s)."
   (= (length rules)
      (length (remove-duplicates rules :test #'equal :key #'rule-lhs))))
-
-(defun validate-rules (rules)
-  "Validate list of rule structure."
-  (and (every #'valid-rule-p rules)
-       (loop :for rule :in rules
-          :for lhs = (rule-lhs rule)
-          :if (member lhs lhss :test #'equal)
-          :collect lhs :into duplicate-lhs
-          :else
-          :collect lhs :into lhss
-          :finally
-          (if (null duplicate-lhs)
-              (return (values t rules))
-              (return (values nil duplicate-lhs))))))
 
 (defun compile-transition (transition)
   "Compile a transition into a rule structure."
@@ -85,20 +72,6 @@
                     `(format t " RHS VAR ~a = ~s~%"
                              ',(rule-var rule) ,(rule-var rule)))))
          (psetq ,@body)))))
-
-;; (defun compile-transitions (transitions)
-;;   "Parse specs into list of rule structure.
-;; rule: left-hand-side -> right-hand-side or
-;; left-hand-side -> right-hand-side where var = init-form"
-;;   (loop :for transition :in transitions
-;;      :for rule-obj = (compile-transition transition)
-;;      :collect rule-obj :into definitions
-;;      :finally
-;;      (multiple-value-bind (success result)
-;;          (validate-rules definitions)
-;;        (if success
-;;            (return result)
-;;            (rule-error rule "Found invalid rule")))))
 
 (defun rules->match-n (states rules cont base-case)
   "Convert rules to match-n."
@@ -191,12 +164,12 @@
            (desc (describe-secd rules)))
       (let ((invalid-rules (find-if-not #'valid-rule-p rules)))
         (when invalid-rules
-          (rule-error "Contain invalid rules: ~s" invalid-rules)))
+          (rule-error "Found invalid rules: ~s" invalid-rules)))
       (unless (unique-rules-p rules)
-        (rule-error "Found duplicate rules"))
+        (rule-error "Found duplicate rules."))
       `(progn
          (format t ";; ~a transition~%~a~%" ',name ,desc)
-         ;(defparameter ,name ',rules)
+         
          (defun ,name (,@states)
            ,desc
            ;;(declare (optimize (debug 0) (speed 3) (safety 0)))
