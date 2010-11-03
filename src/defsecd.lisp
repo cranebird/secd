@@ -2,7 +2,9 @@
 
 (deftransition secd%% (s e c d)
   (:transitions
-   ( s e (:LDC x . c) d                       -> (x . s) e c d ))
+   ( s e (:LDC x . c) d                       -> (x . s) e c d )
+   ;;( s e (:LDC x . c) d                       -> (m . s) e c d )
+   )
   (:last-value
    (lambda (s e c d) (car s))))
 
@@ -11,7 +13,8 @@
    ( s e (:LDC x . c) d                       -> (x . s) e c d )
    ( s e (:NIL . c) d                         -> (nil . s) e c d )
    ( (a b . s) e (:+ . c) d                   -> (x . s) e c d where x = (+ a b) )
-   ( (a b . s) e (:- . c) d                   -> (x . s) e c d where x = (- a b) ))
+   ( (a b . s) e (:- . c) d                   -> (x . s) e c d where x = (- a b) )
+   )
   (:last-value
    (lambda (s e c d) (car s))))
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -43,7 +46,7 @@
    ( (b a . s) e (:CONS . c) d                   -> ((b . a) . s) e c d )
    ( ((a . b) . s) e (:CAR . c) d                -> (a . s) e c d )
    ( ((a . b) . s) e (:CDR . c) d                -> (b . s) e c d )
-   ( (x . s) e (:CONSP . c) d                    -> (p . s) e c d where p = (consp x) )
+   ( (x . s) e (:CONSP . c) d                    -> (p . s) e c d where p = (if (consp x) #t #f) )
    ( ((:clos |c'| . |e'|) v . s) (nil . e) (:RTAP . c) d -> nil |e''| |c'| d where |e''| = (rplaca |e'| v))
    ( (x . s) e (:SET (m . n) . c) d              -> s |e'| c d where |e'| = (progn (setf (locate m n e) x) e))
    ( (a b . s) e (:+ . c) d                      -> (x . s) e c d where x = (+ a b) )
