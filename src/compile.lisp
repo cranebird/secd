@@ -60,8 +60,37 @@
                          :expr expr
                          :reason (apply #'format nil reason args))))
 
+;; resolve-define-list
+;; (define x 13) => (letrec ((x 13)) 
+;; ((define x 13) (define y 7)) => (letrec ((x 13)) (letrec ((y 7)) #f))
+;; ((define x 13) (define y 7) (f)) => (letrec ((x 13)) (letrec ((y 7)) (f)))
+
+(defun define->letrec (exp)
+  (cond
+    ((consp exp)
+     (match exp
+       (('define <variable> <expression>)
+        `(letrec ((,<variable> ,<expression>))
+                 #f))
+       (t
+        (reduce #'(lambda (e body)
+                    (format t "e=~a body=~a~%" e body)
+                    (match e
+                      (('define <variable> <expression>)
+                       `(letrec ((,<variable> ,<expression>))
+                                (begin ,@body)))
+                      (t
+                       `(,e ,@body)))) exp :from-end t :initial-value nil))))
+    (t
+     exp)))
+;; fixme
+;; (define->letrec '((define y 3) (define x 1))) => (LETREC ((Y 3)) (BEGIN LETREC ((X 1)) (BEGIN))) ;; error. BEGIN LETREC is invalid.
+;; (define->letrec '( (define y (lambda (n) (* n 2)))  (y 30) (y 10))) => (LETREC ((Y (LAMBDA (N) (* N 2)))) (BEGIN (Y 30) (Y 10))) ;; not clean, but ok
+
+
 (defun comp (exp env c)
   "Compile an expression EXP."
+  ;; (format t ";; comp :~%exp: ~a~%env: ~a~%" exp env)
   (cond
     ((self-evaluating-p exp)
      `(:LDC ,exp ,@c)) ;; BE CARE fixme
@@ -71,7 +100,7 @@
     ((atom exp)
      (let ((location (lookup exp env)))
        (unless location
-         (comp-error exp "Variable ~a not found." exp))
+         (comp-error exp "Variable ~a not found in env ~a." exp env))
        `(:LD ,(lookup exp env) ,@c)))
     ((consp exp)
      (let* ((fn (car exp))
@@ -134,11 +163,14 @@
                                          :RAP ,@c)))))
             (t (comp-error exp "Unexpected letrec form."))))
          ((equal fn 'begin)
+          
           (reduce #'(lambda (e cont)
                       (comp e env `(:POP ,@cont)))
                   (butlast args)
                   :from-end t
-                  :initial-value (comp (car (last args)) env c)))
+                  :initial-value (comp (car (last args)) env c))
+          )
+
          ((equal fn 'set!)
           (match exp
             (('set! <variable> <expression>)
@@ -154,8 +186,20 @@
                (t
                 `(:LDCT ,c ,@(comp proc env `(:AP ,@c))))))
             (t (comp-error exp "Unexpected call/cc form"))))
-         ((equal fn 'define)
-          (comp-error exp "define not impl. yet."))
+
+         ;; ((equal fn 'define)
+         ;;  ;;(comp-error exp "define not impl. yet.")
+         ;;  ;; 1. simple definistion
+         ;;  (format t ";; define ~%")
+         ;;  (match exp
+         ;;    (('define <variable> <expression>)
+         ;;     (format t "define... ~a~%" (extend-env (list <variable>) env))
+         ;;     (let ((new-env (extend-env (list <variable>) env)))
+         ;;       (comp <expression> new-env  `(:SET ,(lookup <variable> new-env) ,@c)))
+         ;;     )
+         ;;    (t (comp-error exp "Unexpected define form.")))
+         ;;  )
+         
          ((equal fn 'apply)
           (comp-error exp "apply not impl. yet."))
          ((equal fn '+)
@@ -205,8 +249,7 @@
              (comp `(if (and (= ,(car args) ,(cadr args))
                              (= ,(cadr args) ,@(cddr args)))
                         #t
-                        #f) env c)
-             )))
+                        #f) env c))))
 
          ;; primitive re-define ;; TODO
          ;; keyword ;; TODO
@@ -217,7 +260,6 @@
             (('>= z1 z2) (comp z2 env (comp z1 env `(:>= ,@c))))
             (('< z1 z2) (comp z2 env (comp z1 env `(:< ,@c))))
             (('<= z1 z2) (comp z2 env (comp z1 env `(:<= ,@c))))
-            (('= z1 z2) (comp z2 env (comp z1 env `(:= ,@c))))
             (('mod z1 z2) (comp z2 env (comp z1 env `(:mod ,@c))))
             ;; Pair and lists
             (('cons obj1 obj2) (comp obj2 env (comp obj1 env `(:CONS ,@c))))
