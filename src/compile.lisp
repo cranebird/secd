@@ -106,17 +106,21 @@
      (let* ((fn (car exp))
             (args (cdr exp))
             (argl (length args)))
-       (cond
-         ((equal fn 'quote)
+       (case fn
+         ((quote)
           (comp-error exp "Not implement yet: quote"))
-         ((equal fn 'if)
+         ((if)
           (match exp
             (('if <test> <consequent> <alternate>)
              (let ((ct (comp <consequent> env '(:JOIN)))
                    (cf (comp <alternate> env '(:JOIN))))
                (comp <test> env `(:SEL ,ct ,cf ,@c))))
+            (('if <test> <consequent>) ;; unspecified
+             (let ((ct (comp <consequent> env '(:JOIN)))
+                   (cf (comp '#f env '(:JOIN))))
+               (comp <test> env `(:SEL ,ct ,cf ,@c))))
             (t (comp-error exp "Unexpected if form."))))
-         ((equal fn 'and)
+         ((and)
           (case argl
             ((0) (comp #t env c))
             ((1) (comp `(if ,(car args) #t #f) env c))
@@ -124,7 +128,7 @@
              (comp `(if ,(car args)
                         (and ,(cdr args))
                         #f) env c))))
-         ((equal fn 'lambda)
+         ((lambda)
           (match exp
             (('lambda <formals> . <body>)
              (let ((new-env (extend-env <formals> env)))
@@ -135,14 +139,14 @@
                                :initial-value '(:RTN))
                       ,@c)))
             (t (comp-error exp "Unexpected lambda form."))))
-         ((equal fn 'let)
+         ((let)
           (match exp
             (('let <bindings> . <body>)
              (let ((vars (mapcar #'car <bindings>))
                    (inits (mapcar #'cadr <bindings>)))
                (comp `((lambda ,vars ,@<body>) ,@inits) env c)))
             (t (comp-error exp "Unexpected let form."))))
-         ((equal fn 'letrec)
+         ((letrec)
           (match exp
             (('letrec <bindings> . <body>)
              (let* ((vars (mapcar #'car <bindings>))
@@ -162,21 +166,18 @@
                                                   :initial-value '(:RTN))
                                          :RAP ,@c)))))
             (t (comp-error exp "Unexpected letrec form."))))
-         ((equal fn 'begin)
-          
+         ((begin)
           (reduce #'(lambda (e cont)
                       (comp e env `(:POP ,@cont)))
                   (butlast args)
                   :from-end t
-                  :initial-value (comp (car (last args)) env c))
-          )
-
-         ((equal fn 'set!)
+                  :initial-value (comp (car (last args)) env c)))
+         ((set!)
           (match exp
             (('set! <variable> <expression>)
              (comp <expression> env `(:SET ,(lookup <variable> env) ,@c)))
             (t (comp-error exp "Unexpected set! form."))))
-         ((equal fn 'call/cc)
+         ((call/cc)
           (match exp
             (('call/cc proc)
              (cond
@@ -200,9 +201,9 @@
          ;;    (t (comp-error exp "Unexpected define form.")))
          ;;  )
          
-         ((equal fn 'apply)
+         ((apply)
           (comp-error exp "apply not impl. yet."))
-         ((equal fn '+)
+         ((+)
           (case argl
             ((0) ;; (+) => 0
              (comp 0 env c))
@@ -212,7 +213,7 @@
              (comp (cadr args) env (comp (car args) env `(:+ ,@c))))
             (t ;;(+ x y z) => (+ x (+ y z))
              (comp `(+ ,(car args) (+ ,@(cdr args))) env c))))
-         ((equal fn '*)
+         ((*)
           (case argl
             ((0) ;; (*) => 1
              (comp 1 env c))
@@ -222,7 +223,7 @@
              (comp (cadr args) env (comp (car args) env `(:* ,@c))))
             (t ;;(* x y z) => (* x (* y z))
              (comp `(* ,(car args) (* ,@(cdr args))) env c))))
-         ((equal fn '-)
+         ((-)
           (case argl
             ((0) ;; (-) => error
              (comp-error exp "(-) is invalid form."))
@@ -232,7 +233,7 @@
              (comp (cadr args) env (comp (car args) env `(:- ,@c))))
             (t ;;(- z1 z2 ...)
              (comp `(- (- ,(first args) ,(second args)) ,@(nthcdr 2 args)) env nil))))
-         ((equal fn '=)
+         ((=)
           (case argl
             ((0) ;; (=) => error
              (comp-error exp "(=) is invalid form."))
@@ -294,7 +295,8 @@
                             (reverse args)
                             :from-end t
                             :initial-value (comp fn env `(:AP ,@c)))))))
-            )))))))
+            )))
+       ))))
 
 (defun compile-pass1 (exp &optional env)
   "Compile an s-expression into a list of instructions in an environment ENV. "
