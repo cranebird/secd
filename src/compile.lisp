@@ -55,7 +55,7 @@
                      (scheme-compile-error-reason condition)))))
 
 (defun comp-error (expr reason &rest args)
-  "raise scheme-compile-error."
+  "Raise scheme-compile-error."
   (error (make-condition 'scheme-compile-error
                          :expr expr
                          :reason (apply #'format nil reason args))))
@@ -92,17 +92,17 @@
   "Compile an expression EXP."
   ;; (format t ";; comp :~%exp: ~a~%env: ~a~%" exp env)
   (cond
-    ((self-evaluating-p exp)
-     `(:LDC ,exp ,@c)) ;; BE CARE fixme
     ((null exp)
      `(:NIL ,@c))
+    ((self-evaluating-p exp)
+     `(:LDC ,exp ,@c)) ;; BE CARE fixme
     ;; Variable access
     ((atom exp)
      (let ((location (lookup exp env)))
        (unless location
          (comp-error exp "Variable ~a not found in env ~a." exp env))
        `(:LD ,(lookup exp env) ,@c)))
-    ((consp exp)
+    (t
      (let* ((fn (car exp))
             (args (cdr exp))
             (argl (length args)))
@@ -121,13 +121,23 @@
                (comp <test> env `(:SEL ,ct ,cf ,@c))))
             (t (comp-error exp "Unexpected if form."))))
          ((and)
-          (case argl
-            ((0) (comp #t env c))
-            ((1) (comp `(if ,(car args) #t #f) env c))
+          (match exp
+            (('and) (comp #t env c))
+            (('and <test1>) (comp `(if ,<test1> #t #f) env c))
             (t
              (comp `(if ,(car args)
                         (and ,(cdr args))
                         #f) env c))))
+         ((or)
+          (case argl
+            ((0) (comp #f env c))
+            ((1) (comp (car args) env c))
+            ((2)
+             (let ((sym (gensym)))
+               (comp `(let ((,sym ,(car args)))
+                        (if ,sym
+                            ,sym ,(cadr args))) env c))))
+          )
          ((lambda)
           (match exp
             (('lambda <formals> . <body>)
@@ -204,46 +214,39 @@
          ((apply)
           (comp-error exp "apply not impl. yet."))
          ((+)
-          (case argl
-            ((0) ;; (+) => 0
-             (comp 0 env c))
-            ((1) ;; (+ x) => x
-             (comp (car args) env c))
-            ((2) ;; (+ x y)
-             (comp (cadr args) env (comp (car args) env `(:+ ,@c))))
-            (t ;;(+ x y z) => (+ x (+ y z))
+          (match exp
+            (('+) (comp 0 env c))
+            (('+ z1)
+             (comp z1 env c))
+            (('+ z1 z2)
+             (comp z2 env (comp z1 env `(:+ ,@c))))
+            (t ;;(+ z1 z2 z3) => (+ z1 (+ z2 z3))
              (comp `(+ ,(car args) (+ ,@(cdr args))) env c))))
          ((*)
-          (case argl
-            ((0) ;; (*) => 1
-             (comp 1 env c))
-            ((1) ;; (* z) => z
-             (comp (car args) env c))
-            ((2) ;; (* z1 z2)
-             (comp (cadr args) env (comp (car args) env `(:* ,@c))))
-            (t ;;(* x y z) => (* x (* y z))
+          (match exp
+            (('*) (comp 1 env c))
+            (('* z1) (comp z1 env c))
+            (('* z1 z2)
+             (comp z2 env (comp z1 env `(:* ,@c))))
+            (t ;;(* z1 z2 z3) => (* z1 (* z2 z3))
              (comp `(* ,(car args) (* ,@(cdr args))) env c))))
          ((-)
-          (case argl
-            ((0) ;; (-) => error
-             (comp-error exp "(-) is invalid form."))
-            ((1) ;; (- z) => -z
-             (comp (- (car args)) env c))
-            ((2) ;; (- z1 z2)
-             (comp (cadr args) env (comp (car args) env `(:- ,@c))))
+          (match exp
+            (('-) (comp-error exp "(-) is invalid form."))
+            (('- z) (comp (- z) env c))
+            (('- z1 z2)
+             (comp z2 env (comp z1 env `(:- ,@c))))
             (t ;;(- z1 z2 ...)
              (comp `(- (- ,(first args) ,(second args)) ,@(nthcdr 2 args)) env nil))))
          ((=)
-          (case argl
-            ((0) ;; (=) => error
-             (comp-error exp "(=) is invalid form."))
-            ((1) ;; (= 1) => error
-             (comp-error exp "= require 2 arguments."))
-            ((2)
-             (comp (second args) env (comp (first args) env `(:= ,@c))))
-            ((3) ;; (= x y z) => (and (= x y) (= y z))
-             (comp `(if (and (= ,(car args) ,(cadr args))
-                             (= ,(cadr args) ,(caddr args)))
+          (match exp
+            (('=) (comp-error exp "(=) is invalid form."))
+            (('= z) (comp-error exp "= require 2 arguments but got 1: ~a" z))
+            (('= z1 z2)
+             (comp z2 env (comp z1 env `(:= ,@c))))
+            (('= z1 z2 z3) ;; (= x y z) => (and (= x y) (= y z))
+             (comp `(if (and (= ,z1 ,z2)
+                             (= ,z2 ,z3))
                         #t
                         #f) env c))
             (t
@@ -303,7 +306,7 @@
   (comp exp env '(:STOP)))
 
 (defun opt (program)
-  "Optimize compiled code."
+  "Optimize compiled code if possible."
   (match program
     (()
      nil)
