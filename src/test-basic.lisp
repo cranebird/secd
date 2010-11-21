@@ -9,8 +9,11 @@
 
 (in-package :secd)
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (set-scm-macro-character))
+
 (defun test-doc ()
-  "check documentation"
+  "Print documentation strings."
   (let ((docs
          (loop :for sym :being :the :present-symbols :in (find-package :secd)
             :if (and (fboundp sym) (documentation sym 'function))
@@ -19,6 +22,7 @@
        :do (format t "~24,,,a : ~a~%" sym doc))))
 
 (defun test-secd-eval (exp)
+  "Eval S-expression EXP."
   (let* ((c (compile-pass1 exp))
          (opt-c (opt c)))
     (when *secd-debug*
@@ -56,7 +60,6 @@
     (= 10 (test-secd-eval '(+ 1 2 3 4)))
     (= 10 (test-secd-eval '(+ 1 2 (+ 1 2) 4)))
     (= 7 (test-secd-eval '(+ (+ 1 2) 4)))))
-
 
 (deftest test-- ()
   (macrolet ((gencheck ()
@@ -101,6 +104,25 @@
     (= (* 2 3 4 5) (test-secd-eval '(* 2 3 4 5)))
     (= (* 1) (test-secd-eval '(* 1)))))
 
+(deftest test-= ()
+  (check
+    (eql #t (test-secd-eval '(= 4 4)))
+    (eql #f (test-secd-eval '(= 4 2)))
+    (eql #t (test-secd-eval '(= (+ 2 2) 4)))
+    (eql #t (test-secd-eval '(= (+ 3 1) 4)))
+    (eql #t (test-secd-eval '(= (+ 3 1) (* 2 2))))
+    (eql #t (test-secd-eval '(= 2 2 2)))
+    (eql #f (test-secd-eval '(= 2 2 1)))
+    (eql #t (test-secd-eval '(= 8 (* 2 2 2) (+ 3 5) (- 10 2))))
+    (eql #f (test-secd-eval '(= 8 (* 2 2 2) (+ 3 5) (- 10 2) 11)))))
+
+(deftest test-if ()
+  (check
+    (= 4 (test-secd-eval '(if #t 4 10)))
+    (= 10 (test-secd-eval '(if #f 4 10)))
+    (= 8 (test-secd-eval '(if #t 8)))
+    (eql #f (test-secd-eval '(if #f 32)))))
+
 (deftest test-sel-1 ()
   (macrolet ((gencheck ()
                `(check
@@ -109,13 +131,26 @@
                        :collect `(= ,i (test-secd-eval '(if #t ,i ,j)))))))
     (gencheck)))
 
-(deftest test-sel-2 ()  ;; fail scheme-f valued as #t!
+(deftest test-sel-2 ()
   (macrolet ((gencheck ()
                `(check
                   ,@(loop :for i :from 0 :to 100
                        :for j :from -100 :to 0
                        :collect `(= ,j (test-secd-eval '(if #f ,i ,j)))))))
     (gencheck)))
+
+(deftest test-and-1 ()
+  (check
+    (eql #t (test-secd-eval '(and (= 2 2) (> 2 1))))
+    (eql #f (test-secd-eval '(and (= 2 2) (< 2 1))))
+    (eql #t (test-secd-eval '(and)))))
+
+(deftest test-or-1 ()
+  (check
+    (eql #f (test-secd-eval '(or)))
+    (eql #t (test-secd-eval '(or (= 2 2) (> 2 1))))
+    (eql #t (test-secd-eval '(or (= 2 2) (< 2 1))))
+    (eql #f (test-secd-eval '(or #f #f #f)))))
 
 (deftest test-basic-eval ()
   (combine-results
@@ -124,8 +159,12 @@
     (test--)
     (test-+-)
     (test-*)
+    (test-=)
+    (test-if)
     (test-sel-1)
     (test-sel-2)
+    (test-and-1)
+    (test-or-1)
     ))
 
 (deftest test-lambda-1 ()
@@ -333,19 +372,28 @@
                                   (x (lambda (ignore) "hi")))))
     ))
 
-;; (deftest test-call/cc-letrec ()
-;;   (check
-;;     (= 3628800 (test-secd-eval '(letrec ((f (lambda (n)
-;;                                          (if (= n 0)
-;;                                              1
-;;                                              (* n (f (- n 1)))))))
-;;                             (f 10))))
-;;     (= 3628800 (test-secd-eval '(letrec ((f (lambda (n)
-;;                                               (call/cc (lambda (c)
-;;                                                          (if (= n 0)
-;;                                                              (c 1)
-;;                                                              (* n (f (- n 1)))))))))
-;;                                  (f 10))))))
+(deftest test-call/cc-3 () ;; perter_norvig lispy2 example
+  (check
+    (= 35 (test-secd-eval '(call/cc (lambda (throw)
+                                      (+ 5 (* 10 (call/cc (lambda (escape) (* 100 (escape 3))))))))))
+    (= 3 (test-secd-eval '(call/cc (lambda (throw)
+                                     (+ 5 (* 10 (call/cc (lambda (escape) (* 100 (throw 3))))))))))
+
+    ))
+
+(deftest test-call/cc-letrec ()
+  (check
+    (= 3628800 (test-secd-eval '(letrec ((f (lambda (n)
+                                              (if (= n 0)
+                                                  1
+                                                  (* n (f (- n 1)))))))
+                                 (f 10))))
+    (= 3628800 (test-secd-eval '(letrec ((f (lambda (n)
+                                              (call/cc (lambda (c)
+                                                         (if (= n 0)
+                                                             (c 1)
+                                                             (* n (f (- n 1)))))))))
+                                 (f 10))))))
 
 (deftest test-set ()
   (check
@@ -383,4 +431,5 @@
     (test-fib)
     (test-call/cc)
     (test-call/cc-2)
+    (test-call/cc-letrec)
     (test-set)))
