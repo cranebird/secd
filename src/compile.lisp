@@ -96,7 +96,7 @@
      `(:NIL ,@c))
     ((self-evaluating-p exp)
      `(:LDC ,exp ,@c)) ;; BE CARE fixme
-    ;; Variable access
+    ;; R5RS 4.1.1. Variable references
     ((atom exp)
      (let ((location (lookup exp env)))
        (unless location
@@ -107,37 +107,10 @@
             (args (cdr exp))
             (argl (length args)))
        (case fn
+         ;; R5RS 4.1.2. Literal expressions
          ((quote)
           (comp-error exp "Not implement yet: quote"))
-         ((if)
-          (match exp
-            (('if <test> <consequent> <alternate>)
-             (let ((ct (comp <consequent> env '(:JOIN)))
-                   (cf (comp <alternate> env '(:JOIN))))
-               (comp <test> env `(:SEL ,ct ,cf ,@c))))
-            (('if <test> <consequent>) ;; unspecified
-             (let ((ct (comp <consequent> env '(:JOIN)))
-                   (cf (comp '#f env '(:JOIN))))
-               (comp <test> env `(:SEL ,ct ,cf ,@c))))
-            (t (comp-error exp "Unexpected if form."))))
-         ((and)
-          (match exp
-            (('and) (comp #t env c))
-            (('and <test1>) (comp `(if ,<test1> #t #f) env c))
-            (t
-             (comp `(if ,(car args)
-                        (and ,(cdr args))
-                        #f) env c))))
-         ((or)
-          (case argl
-            ((0) (comp #f env c))
-            ((1) (comp (car args) env c))
-            ((2)
-             (let ((sym (gensym)))
-               (comp `(let ((,sym ,(car args)))
-                        (if ,sym
-                            ,sym ,(cadr args))) env c))))
-          )
+         ;; R5RS 4.1.4. Procedures
          ((lambda)
           (match exp
             (('lambda <formals> . <body>)
@@ -149,6 +122,50 @@
                                :initial-value '(:RTN))
                       ,@c)))
             (t (comp-error exp "Unexpected lambda form."))))
+         ;; R5RS 4.1.5. Conditinals
+         ((if)
+          (match exp
+            (('if <test> <consequent> <alternate>)
+             (let ((ct (comp <consequent> env '(:JOIN)))
+                   (cf (comp <alternate> env '(:JOIN))))
+               (comp <test> env `(:SEL ,ct ,cf ,@c))))
+            (('if <test> <consequent>) ;; unspecified
+             (let ((ct (comp <consequent> env '(:JOIN)))
+                   (cf (comp '#f env '(:JOIN))))
+               (comp <test> env `(:SEL ,ct ,cf ,@c))))
+            (t (comp-error exp "Unexpected if form."))))
+         ;; R5RS 4.1.6. Assignments
+         ((set!)
+          (match exp
+            (('set! <variable> <expression>)
+             (comp <expression> env `(:SET ,(lookup <variable> env) ,@c)))
+            (t (comp-error exp "Unexpected set! form."))))
+         ;; R5RS 4.2.1. Conditionals
+         ((cond)
+          (comp-error exp "Not implement yet: cond"))
+         ((case)
+          (comp-error exp "Not implement yet: case"))
+         ((and)
+          (match exp
+            (('and) (comp #t env c))
+            (('and <test1>) (comp `(if ,<test1> #t #f) env c))
+            (t
+             (comp `(if ,(car args)
+                        (and ,(cdr args))
+                        #f) env c))))
+         ((or)
+          (match exp
+            (('or) (comp #f env c))
+            (('or <test1>) (comp <test1> env c))
+            (('or <test1> <test2>)
+             (let ((sym (gensym)))
+               (comp `(let ((,sym ,<test1>))
+                        (if ,sym
+                            ,sym ,<test2>)) env c)))
+            (t
+             (comp `(or ,(car args)
+                        (or ,@(cdr args))) env c))))
+         ;; R5RS 4.2.2. Binding constructs
          ((let)
           (match exp
             (('let <bindings> . <body>)
@@ -156,6 +173,8 @@
                    (inits (mapcar #'cadr <bindings>)))
                (comp `((lambda ,vars ,@<body>) ,@inits) env c)))
             (t (comp-error exp "Unexpected let form."))))
+         ((let*)
+          (comp-error exp "Not implement yet: let*"))
          ((letrec)
           (match exp
             (('letrec <bindings> . <body>)
@@ -176,68 +195,19 @@
                                                   :initial-value '(:RTN))
                                          :RAP ,@c)))))
             (t (comp-error exp "Unexpected letrec form."))))
+         ;; R5RS 4.2.3. Sequencing
          ((begin)
           (reduce #'(lambda (e cont)
                       (comp e env `(:POP ,@cont)))
                   (butlast args)
                   :from-end t
                   :initial-value (comp (car (last args)) env c)))
-         ((set!)
-          (match exp
-            (('set! <variable> <expression>)
-             (comp <expression> env `(:SET ,(lookup <variable> env) ,@c)))
-            (t (comp-error exp "Unexpected set! form."))))
-         ((call/cc)
-          (match exp
-            (('call/cc proc)
-             (cond
-               ((null c)
-                (comp-error exp "Unexpected call/cc. Continuation is null."))
-               ((equal c '(:RTN)) `(:LDCT (:RTN) ,@(comp proc env `(:TAP))))
-               (t
-                `(:LDCT ,c ,@(comp proc env `(:AP ,@c))))))
-            (t (comp-error exp "Unexpected call/cc form"))))
-
-         ;; ((equal fn 'define)
-         ;;  ;;(comp-error exp "define not impl. yet.")
-         ;;  ;; 1. simple definistion
-         ;;  (format t ";; define ~%")
-         ;;  (match exp
-         ;;    (('define <variable> <expression>)
-         ;;     (format t "define... ~a~%" (extend-env (list <variable>) env))
-         ;;     (let ((new-env (extend-env (list <variable>) env)))
-         ;;       (comp <expression> new-env  `(:SET ,(lookup <variable> new-env) ,@c)))
-         ;;     )
-         ;;    (t (comp-error exp "Unexpected define form.")))
-         ;;  )
-         
-         ((apply)
-          (comp-error exp "apply not impl. yet."))
-         ((+)
-          (match exp
-            (('+) (comp 0 env c))
-            (('+ z1)
-             (comp z1 env c))
-            (('+ z1 z2)
-             (comp z2 env (comp z1 env `(:+ ,@c))))
-            (t ;;(+ z1 z2 z3) => (+ z1 (+ z2 z3))
-             (comp `(+ ,(car args) (+ ,@(cdr args))) env c))))
-         ((*)
-          (match exp
-            (('*) (comp 1 env c))
-            (('* z1) (comp z1 env c))
-            (('* z1 z2)
-             (comp z2 env (comp z1 env `(:* ,@c))))
-            (t ;;(* z1 z2 z3) => (* z1 (* z2 z3))
-             (comp `(* ,(car args) (* ,@(cdr args))) env c))))
-         ((-)
-          (match exp
-            (('-) (comp-error exp "(-) is invalid form."))
-            (('- z) (comp (- z) env c))
-            (('- z1 z2)
-             (comp z2 env (comp z1 env `(:- ,@c))))
-            (t ;;(- z1 z2 ...)
-             (comp `(- (- ,(first args) ,(second args)) ,@(nthcdr 2 args)) env nil))))
+         ;; R5RS 4.2.4. Iteration
+         ((do)
+          (comp-error exp "Not implement yet: do"))
+         ;; R5RS 6. Standard procedures
+         ;; R5RS 6.1. Equivalence predicates
+         ;; R5RS 6.2. Numbers
          ((=)
           (match exp
             (('=) (comp-error exp "(=) is invalid form."))
@@ -254,7 +224,123 @@
                              (= ,(cadr args) ,@(cddr args)))
                         #t
                         #f) env c))))
+         ((<)
+          (match exp
+            (('<) (comp-error exp "(<) is invalid form."))
+            (('< x1) (comp-error exp "(< ~a) is invalid form." x1))
+            (('< x1 x2) (comp x2 env (comp x1 env `(:< ,@c))))
+            (t (comp-error exp "not implemented yet: (< x1 x2 x3)"))))
+         ((>)
+          (match exp
+            (('>) (comp-error exp "(>) is invalid form."))
+            (('> x1) (comp-error exp "(> ~a) is invalid form." x1))
+            (('> x1 x2) (comp x2 env (comp x1 env `(:> ,@c))))
+            (t (comp-error exp "not implemented yet: (> x1 x2 x3)"))))
+         ((<=)
+          (match exp
+            (('<=) (comp-error exp "(<=) is invalid form."))
+            (('<= x1) (comp-error exp "(<= ~a) is invalid form." x1))
+            (('<= x1 x2) (comp x2 env (comp x1 env `(:<= ,@c))))
+            (t (comp-error exp "not implemented yet: (<= x1 x2 x3)"))))
+         ((>=)
+          (match exp
+            (('>=) (comp-error exp "(>=) is invalid form."))
+            (('>= x1) (comp-error exp "(>= ~a) is invalid form." x1))
+            (('>= x1 x2) (comp x2 env (comp x1 env `(:>= ,@c))))
+            (t (comp-error exp "not implemented yet: (>= x1 x2 x3)"))))
+         ((zero?)
+          (match exp
+            (('zero? z) (comp `(= 0 ,z) env c))
+            (t (comp-error exp "zero? requires 1 arguments but got ~a" argl))))
+         ((positive?)
+          (match exp
+            (('positive? z) (comp `(> ,z 0) env c))
+            (t (comp-error exp "positive? requires 1 arguments but got ~a" argl))))
+         ((negative?)
+          (match exp
+            (('negative? z) (comp `(< ,z 0) env c))
+            (t (comp-error exp "negative? requires 1 arguments but got ~a" argl))))
+         ((+)
+          (match exp
+            (('+) (comp 0 env c))
+            (('+ z1)
+             (comp z1 env c))
+            (('+ z1 z2) (comp z2 env (comp z1 env `(:+ ,@c))))
+            (t ;;(+ z1 z2 z3) => (+ z1 (+ z2 z3))
+             (comp `(+ ,(car args) (+ ,@(cdr args))) env c))))
+         ((*)
+          (match exp
+            (('*) (comp 1 env c))
+            (('* z1) (comp z1 env c))
+            (('* z1 z2) (comp z2 env (comp z1 env `(:* ,@c))))
+            (t ;;(* z1 z2 z3) => (* z1 (* z2 z3))
+             (comp `(* ,(car args) (* ,@(cdr args))) env c))))
+         ((-)
+          (match exp
+            (('-) (comp-error exp "(-) is invalid form."))
+            (('- z) (comp (- z) env c))
+            (('- z1 z2)
+             (comp z2 env (comp z1 env `(:- ,@c))))
+            (t ;;(- z1 z2 ...)
+             (comp `(- (- ,(first args) ,(second args)) ,@(nthcdr 2 args)) env nil))))
+         ((/)
+          (comp-error exp "Not implement yet: /"))
+         ((abs)
+          (match exp
+            (('abs x)
+             (comp `(if (negative? ,x)
+                     (- ,x)
+                     ,x) env c))
+            (t (comp-error "(abs requires 1 argument but got ~a" argl))))
+         ;; R5RS 6.4. Control features
+         ((procedure?)
+          (comp-error exp "Not implement yet: procedure?"))
+         ((apply)
+          (comp-error exp "Not implement yet: apply"))
+         ((map)
+          (comp-error exp "Not implement yet: map"))
+         ((for-each)
+          (comp-error exp "Not implement yet: for-each"))
+         ((call/cc)
+          (match exp
+            (('call/cc proc)
+             (cond
+               ((null c)
+                (comp-error exp "Unexpected call/cc. Continuation is null."))
+               ((equal c '(:RTN)) `(:LDCT (:RTN) ,@(comp proc env `(:TAP))))
+               (t
+                `(:LDCT ,c ,@(comp proc env `(:AP ,@c))))))
+            (t (comp-error exp "Unexpected call/cc form"))))
+         ((values)
+          (comp-error exp "Not implement yet: values"))
+         ((call-with-values)
+          (comp-error exp "Not implement yet: call-with-values"))
+         ((dynamic-wind)
+          (comp-error exp "Not implement yet: dynamic-wind"))
+         ;; R5RS 6.5. Eval
+         ((eval)
+          (comp-error exp "Not implement yet: eval"))
+         ((scheme-report-environment)
+          (comp-error exp "Not implement yet: scheme-report-environment"))
+         ((null-environment)
+          (comp-error exp "Not implement yet: null-environment"))
+         ((interaction-environment)
+          (comp-error exp "Not implement yet: interaction-environment"))
+         ;; R5RS 6.6.
 
+         ;; ((equal fn 'define)
+         ;;  ;;(comp-error exp "define not impl. yet.")
+         ;;  ;; 1. simple definistion
+         ;;  (format t ";; define ~%")
+         ;;  (match exp
+         ;;    (('define <variable> <expression>)
+         ;;     (format t "define... ~a~%" (extend-env (list <variable>) env))
+         ;;     (let ((new-env (extend-env (list <variable>) env)))
+         ;;       (comp <expression> new-env  `(:SET ,(lookup <variable> new-env) ,@c)))
+         ;;     )
+         ;;    (t (comp-error exp "Unexpected define form.")))
+         ;;  )
+         
          ;; primitive re-define ;; TODO
          ;; keyword ;; TODO
          (t
