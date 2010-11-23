@@ -68,4 +68,4 @@
                                                                                   s e c d)))
    )
   (:last-value
-   (lambda (s e c d) (if (consp s) (car s)))))
+   (lambda (s e c d) (declare (ignore e c d)) (if (consp s) (car s)))))
