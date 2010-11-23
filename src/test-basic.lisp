@@ -86,6 +86,21 @@
                        :collect `(= ,(+ i (- j k)) (test-secd-eval '(+ ,i (- ,j ,k))))))))
     (gencheck)))
 
+
+(deftest test-positive-negative ()
+  (check
+    (eql #t (test-secd-eval '(positive? 3)))
+    (eql #f (test-secd-eval '(positive? 0)))
+    (eql #f (test-secd-eval '(positive? -3)))
+    (eql #f (test-secd-eval '(negative? 3)))
+    (eql #f (test-secd-eval '(negative? 0)))
+    (eql #t (test-secd-eval '(negative? -3)))
+    (eql #t (test-secd-eval '(positive? (- 4 1))))
+    (eql #f (test-secd-eval '(positive? (- 4 5))))
+    (eql #t (test-secd-eval '(negative? (- 4 5))))
+    (eql #f (test-secd-eval '(negative? (- 4 3))))
+    ))
+
 (deftest test-* ()
   (macrolet ((gencheck ()
                `(check
@@ -115,6 +130,12 @@
     (eql #f (test-secd-eval '(= 2 2 1)))
     (eql #t (test-secd-eval '(= 8 (* 2 2 2) (+ 3 5) (- 10 2))))
     (eql #f (test-secd-eval '(= 8 (* 2 2 2) (+ 3 5) (- 10 2) 11)))))
+
+(deftest test-abs ()
+  (check
+    (eql 3 (test-secd-eval '(abs 3)))
+    (eql 3 (test-secd-eval '(abs -3)))
+    (eql 0 (test-secd-eval '(abs 0)))))
 
 (deftest test-if ()
   (check
@@ -160,6 +181,8 @@
     (test-+-)
     (test-*)
     (test-=)
+    (test-positive-negative)
+    (test-abs)
     (test-if)
     (test-sel-1)
     (test-sel-2)
@@ -236,7 +259,7 @@
     (test-lambda-7)
     ))
 
-(deftest test-begin ()
+(deftest test-begin-1 ()
   (check
     (= 13 (test-secd-eval '(begin 13)))
     (= 14 (test-secd-eval '(begin 7 14)))
@@ -244,6 +267,20 @@
     (= 16 (test-secd-eval '(begin -1 (* 2 8))))
     (= 17 (test-secd-eval '(begin 1 3 5 7 (+ 7 (* 2 5)))))
     (= 18 (test-secd-eval '(begin (+ (- 9 1) (* 2 5)))))
+    ))
+
+(deftest test-begin-2 ()
+  (check
+    (= 13 (test-secd-eval '(let ((x 6))
+                            (set! x 7)
+                            13)))
+    (= 7 (test-secd-eval '(let ((x 6))
+                            (set! x 7)
+                            x)))
+    (= 7 (test-secd-eval '(let ((x 6)) 
+                            (begin
+                             (set! x 7)
+                             x))))
     ))
 
 (deftest test-letrec-1 ()
@@ -425,7 +462,8 @@
   (combine-results
     (test-basic-eval)
     (test-basic-lambda)
-    (test-begin)
+    (test-begin-1)
+    (test-begin-2)
     (test-letrec-1)
     (test-letrec)
     (test-fib)
