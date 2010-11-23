@@ -6,28 +6,6 @@
            :mkstr :symb :group :flatten :single? :labeled-time
            :match :match-n))
 
-;; (defpackage :secd.compile
-;;   (:use :common-lisp :secd.util)
-;;   (:export :extend-env :lookup :compile-exp
-;;            :compile-pass1
-;;            :compile-pass2
-;;            :opt
-;;            :instruction-p
-;;            ;; scheme symbol
-;;            :letrec
-;;            :vector-length
-;;            :vector-ref
-;;            :vector-set!
-;;            :vector
-;;            :call/cc
-;;            :set!
-;;            :pair?
-;;            ))
-
-;; (defpackage :secd.interp
-;;   (:use :common-lisp :secd.util :com.gigamonkeys.test)
-;;   (:export :*secd-debug*))
-
 (defpackage :secd.vm
   (:use :common-lisp :secd.util)
   (:shadow :cons :car :cdr)
