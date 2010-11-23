@@ -68,8 +68,10 @@
                   ,@body)))))))
 
 (defun pattern-n->predicate-n (pattern vs)
-  `(and ,@(loop :for p :in pattern :for v :in vs
-             :append (pattern->predicate p v))))
+  "patterns into 'and clauses"
+  `(and
+    ,@(loop :for p :in pattern :for v :in vs
+         :append (pattern->predicate p v))))
 
 (defmacro match-n ((&rest es) &body pattern-body)
   ;;(validate-pattern pattern-body)
