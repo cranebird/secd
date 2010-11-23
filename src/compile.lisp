@@ -65,28 +65,32 @@
 ;; ((define x 13) (define y 7)) => (letrec ((x 13)) (letrec ((y 7)) #f))
 ;; ((define x 13) (define y 7) (f)) => (letrec ((x 13)) (letrec ((y 7)) (f)))
 
-(defun define->letrec (exp)
+(defun define->letrec (seq)
   (cond
-    ((consp exp)
-     (match exp
-       (('define <variable> <expression>)
-        `(letrec ((,<variable> ,<expression>))
-                 #f))
-       (t
-        (reduce #'(lambda (e body)
-                    (format t "e=~a body=~a~%" e body)
-                    (match e
-                      (('define <variable> <expression>)
-                       `(letrec ((,<variable> ,<expression>))
-                                (begin ,@body)))
-                      (t
-                       `(,e ,@body)))) exp :from-end t :initial-value nil))))
+    ((null seq) nil)
     (t
-     exp)))
-;; fixme
-;; (define->letrec '((define y 3) (define x 1))) => (LETREC ((Y 3)) (BEGIN LETREC ((X 1)) (BEGIN))) ;; error. BEGIN LETREC is invalid.
-;; (define->letrec '( (define y (lambda (n) (* n 2)))  (y 30) (y 10))) => (LETREC ((Y (LAMBDA (N) (* N 2)))) (BEGIN (Y 30) (Y 10))) ;; not clean, but ok
+     (match (car seq)
+       (('define <variable> <expression>)
+        (let ((rest (define->letrec (cdr seq))))
+          (if (null rest)
+              `(letrec ((,<variable> ,<expression>))
+                       #f)
+              `(letrec ((,<variable> ,<expression>))
+                       ,rest))))
+       (t
+        (let ((rest (define->letrec (cdr seq))))
+          (if (null rest)
+              (car seq)
+              `(begin ,(car seq) ,rest))))))))
+     
+;; (define->letrec '((define y 3) (define x 1))) 
+;; (define->letrec '( (define y (lambda (n) (* n 2)))  (y 30) (y 10)))
+;; (define->letrec '((define y 3) y))
 
+(defun literal->cons (data)
+  (if (atom data)
+     data
+     `(cons ,(car data) ,(literal->cons (cdr data)))))
 
 (defun comp (exp env c)
   "Compile an expression EXP."
@@ -109,7 +113,14 @@
        (case fn
          ;; R5RS 4.1.2. Literal expressions
          ((quote)
-          (comp-error exp "Not implement yet: quote"))
+          (match exp
+            (('quote data)
+             (comp (literal->cons data) env c))
+            (t
+             (comp-error exp "Unexpected quote form."))
+            )
+          ;(comp-error exp "Not implement yet: quote")
+          )
          ;; R5RS 4.1.4. Procedures
          ((lambda)
           (match exp
@@ -138,7 +149,8 @@
          ((set!)
           (match exp
             (('set! <variable> <expression>)
-             (comp <expression> env `(:SET ,(lookup <variable> env) ,@c)))
+             ;; be care; set! return #f
+             (comp <expression> env `(:SET ,(lookup <variable> env) :LDC #f ,@c)))
             (t (comp-error exp "Unexpected set! form."))))
          ;; R5RS 4.2.1. Conditionals
          ((cond)
@@ -229,25 +241,25 @@
             (('<) (comp-error exp "(<) is invalid form."))
             (('< x1) (comp-error exp "(< ~a) is invalid form." x1))
             (('< x1 x2) (comp x2 env (comp x1 env `(:< ,@c))))
-            (t (comp-error exp "not implemented yet: (< x1 x2 x3)"))))
+            (t (comp-error exp "Not implemented yet: (< x1 x2 x3)"))))
          ((>)
           (match exp
             (('>) (comp-error exp "(>) is invalid form."))
             (('> x1) (comp-error exp "(> ~a) is invalid form." x1))
             (('> x1 x2) (comp x2 env (comp x1 env `(:> ,@c))))
-            (t (comp-error exp "not implemented yet: (> x1 x2 x3)"))))
+            (t (comp-error exp "Not implemented yet: (> x1 x2 x3)"))))
          ((<=)
           (match exp
             (('<=) (comp-error exp "(<=) is invalid form."))
             (('<= x1) (comp-error exp "(<= ~a) is invalid form." x1))
             (('<= x1 x2) (comp x2 env (comp x1 env `(:<= ,@c))))
-            (t (comp-error exp "not implemented yet: (<= x1 x2 x3)"))))
+            (t (comp-error exp "Not implemented yet: (<= x1 x2 x3)"))))
          ((>=)
           (match exp
             (('>=) (comp-error exp "(>=) is invalid form."))
             (('>= x1) (comp-error exp "(>= ~a) is invalid form." x1))
             (('>= x1 x2) (comp x2 env (comp x1 env `(:>= ,@c))))
-            (t (comp-error exp "not implemented yet: (>= x1 x2 x3)"))))
+            (t (comp-error exp "Not implemented yet: (>= x1 x2 x3)"))))
          ((zero?)
           (match exp
             (('zero? z) (comp `(= 0 ,z) env c))
@@ -292,6 +304,9 @@
                      (- ,x)
                      ,x) env c))
             (t (comp-error "(abs requires 1 argument but got ~a" argl))))
+         ;; 
+         ((quotient remainder modulo gcd lcm numerator denominator)
+          (comp-error exp "Not implement yet."))
          ;; R5RS 6.4. Control features
          ((procedure?)
           (comp-error exp "Not implement yet: procedure?"))
